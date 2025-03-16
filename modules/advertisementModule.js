@@ -1,5 +1,5 @@
-const Advertisement = require('../models/advertisementSchema')
-const User = require('../models/userSchema')
+const Advertisement = require('../models/advertisement')
+const User = require('../models/user')
 
 module.exports = class AdvertisementModule {
   static async create(data, files, user) {

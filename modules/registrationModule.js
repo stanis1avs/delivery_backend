@@ -1,5 +1,5 @@
 const CryptoJS = require("crypto-js");
-const User = require('../models/userSchema')
+const { User } = require("../models");
 
 module.exports = class UserModule {
   static async create(data) {
@@ -54,5 +54,28 @@ module.exports = class UserModule {
     }
   }
 
+  static async createFromTelegram({ id, first_name, last_name, username, photo_url }) {
+    try {
+      const user = await User.create({
+        telegram_id: id,
+        first_name,
+        last_name,
+        username,
+        photo_url,
+      });
+      return user;
+    } catch (e) {
+      throw new Error('Failed to create user: ' + e.message);
+    }
+  }
+
+  static async findByTelegramId(telegramUserId) {
+    try {
+      const user = await User.findOne({ where: { telegram_id: telegramUserId } });
+      return user || null;
+    } catch (e) {
+      throw new Error('Failed to find user: ' + e.message);
+    }
+  }
 
 }

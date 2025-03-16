@@ -1,5 +1,5 @@
-const Chat = require('../models/chatSchema')
-const Message = require('../models/messageSchema')
+const Chat = require('../models/chat')
+const Message = require('../models/message')
 
 const {getUserId} = require('../middleware/middlewares')
 
