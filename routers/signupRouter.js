@@ -9,17 +9,15 @@ router.get('/telegram-login', async (req, res) => {
   try {
     const user = await UserModule.findByTelegramId(id);
 
-    if (user) {
-      return res.status(200).json({ status: "exist", data: user });
-    }
-
-    const newUser = await UserModule.createFromTelegram({
+    const userData = user || await UserModule.createFromTelegram({
       id, first_name, last_name, username, photo_url
     });
 
-    return res.status(201).json({ status: "created", data: newUser });
+    const encodedUser = encodeURIComponent(JSON.stringify(userData));
+
+    return res.redirect(`https://eeda-198-98-50-3.ngrok-free.app?user=${encodedUser}`);
   } catch (err) {
-    return res.status(500).json({ status: "error", message: err.message });
+    return res.status(500).send('Ошибка авторизации');
   }
 });
 
