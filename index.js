@@ -2,16 +2,14 @@ const express = require('express');
 const http = require('http');
 const { Pool } = require('pg');
 const { Server } = require('socket.io');
-const { passport } = require('./auth/passportAuthentication');
 require('dotenv').config();
 
 const signinRouter = require('./routers/signinRouter');
 const externalRouter = require('./routers/externalRouter');
-const signupRouter = require('./routers/signupRouter');
-const advertisementsRouter = require('./routers/advertisementsRouter');
+const signupRouter = require('./routers/signup');
 const expressSession = require('express-session');
-
-const CommunicationModule = require('./modules/communicationModule')
+const initializeTelegramHandler = require('./telegramHandler');
+const socketBroadcast = require('./websocketServer');
 
 // const {sessionMiddleware, session, getUserId, wrap} = require('./middleware/middlewares');
 
@@ -31,65 +29,46 @@ app.use(
   expressSession({
     secret: process.env.SESSION_SECRET || 'defaultSecret',
     resave: false,
-    saveUninitialized: false, // Не сохранять неинициализированные сессии
+    saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === 'production', // Использовать secure-куки в продакшене
+      secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24, //  (1 день)
+      maxAge: 1000 * 60 * 60 * 24,
     },
   })
 );
-app.use(passport.initialize());
-app.use(passport.session());
 
 const server = http.createServer(app);
-// const io = new Server(server, {
-//   cors: {
-//     origin: '*',
-//   }
-// })
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST'],
+  },
+  path: '/socket.io',
+})
+
+io.on('connection', (socket) => {
+  console.log('Client connected:', socket.id);
+
+  socket.on('disconnect', () => {
+    console.log('Client disconnected:', socket.id);
+  });
+});
+
 
 app.use('/external-api', externalRouter);
 app.use('/api/signin', signinRouter);
 app.use('/api/signup', signupRouter);
-app.use('/api/advertisements', advertisementsRouter);
 
-
-// io.use(wrap(sessionMiddleware));
-// io.use(wrap(passport.initialize()));
-// io.use(wrap(passport.session()));
-
-// io.on('connection', (socket) => {
-//   if(socket.request.isAuthenticated || socket.request.isAuthenticated()) {
-//     const communicationModule = new CommunicationModule(socket)
-
-//     communicationModule.subscribe(socket);
-
-//     socket.on('getHistory', communicationModule.getHistory);
-//     socket.on('sendMessage', async (data) => {
-//       const sendMessageInfo = communicationModule.sendMessage(data)
-
-//       const userId = getUserId(socket)
-
-//       const sockets = await io.fetchSockets();
-//       const loggedSockets = sockets.filter(socket => userId);
-//       const targetSocket = loggedSockets.find(socket => (userId == data.receiver));
-//       if (targetSocket) {
-//         targetSocket.join(sendMessageInfo.roomId);
-//       }
-//       const strg = JSON.stringify(sendMessageInfo.messageToDb);
-//       socket.join(sendMessageInfo.roomId);
-//       socket.to(sendMessageInfo.roomId).emit('newMessage', {text: strg});
-//       socket.emit('newMessage', {text: strg});
-//     });
-//   }
-// })
 
 async function start() {
   try {
     await pool.connect();
     console.log('Connected to PostgreSQL');
     server.listen(port, () => console.log(`Server running on port ${port}`));
+
+    socketBroadcast.init(io); 
+    initializeTelegramHandler();
   } catch (err) {
     console.log('Failed to connect to the database:', err);
   }
