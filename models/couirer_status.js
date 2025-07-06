@@ -15,10 +15,6 @@ module.exports = (sequelize) => {
                 defaultValue: Sequelize.UUIDV4,
                 primaryKey: true,
             },
-            is_online: {
-                type: DataTypes.BOOLEAN,
-                defaultValue: false,
-            },
             has_order: {
                 type: DataTypes.BOOLEAN,
                 defaultValue: false,
@@ -31,6 +27,8 @@ module.exports = (sequelize) => {
             sequelize,
             modelName: 'CourierStatus',
             tableName: 'couriers_status',
+            createdAt: 'created_at',
+            updatedAt: 'updated_at',
             timestamps: true,
         }
     );

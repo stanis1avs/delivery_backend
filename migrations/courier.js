@@ -10,9 +10,14 @@ module.exports = {
         primaryKey: true,
       },
       user_id: {
-        type: Sequelize.STRING,
+        type: Sequelize.UUID,
+        references: {
+          model: 'users',
+          key: 'id', 
+        },
         allowNull: false,
-        unique: true,
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
       },
       level: {
         type: Sequelize.ENUM('Beginner', 'Experienced', 'Professional', 'Expert'),
@@ -22,12 +27,12 @@ module.exports = {
       created_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.fn("NOW"),
       },
       updated_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.fn("NOW"),
       },
     });
   },

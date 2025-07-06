@@ -17,10 +17,6 @@ module.exports = {
         },
         onDelete: 'CASCADE',
       },
-      is_online: {
-        type: Sequelize.BOOLEAN,
-        defaultValue: false,
-      },
       has_order: {
         type: Sequelize.BOOLEAN,
         defaultValue: false,
@@ -32,12 +28,12 @@ module.exports = {
       created_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.fn("NOW"),
       },
       updated_at: {
         type: Sequelize.DATE,
         allowNull: false,
-        defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
+        defaultValue: Sequelize.fn("NOW"),
       },
     });
   },

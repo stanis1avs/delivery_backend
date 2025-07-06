@@ -34,6 +34,8 @@ module.exports = (sequelize) => {
         modelName: 'CourierReliability',
         tableName: 'couriers_reliability',
         timestamps: true,
+        createdAt: 'created_at',
+        updatedAt: 'updated_at'
     }
   );
 

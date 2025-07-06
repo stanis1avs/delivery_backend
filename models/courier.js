@@ -5,6 +5,8 @@ module.exports = (sequelize) => {
     static associate(models) {
         Courier.hasOne(models.CourierStatus, { foreignKey: 'courier_id' });
         Courier.hasOne(models.CourierReliability, { foreignKey: 'courier_id' });
+        Courier.hasOne(models.Order, { foreignKey: 'executor_id' });
+        Courier.belongsTo(models.User, { foreignKey: 'user_id' });
     }
   }
 
@@ -17,7 +19,7 @@ module.exports = (sequelize) => {
             primaryKey: true,
         },
         user_id: {
-            type: DataTypes.STRING,
+            type: DataTypes.UUID,
             allowNull: false,
             unique: true,
         },
@@ -32,6 +34,8 @@ module.exports = (sequelize) => {
         modelName: 'Courier',
         tableName: 'couriers',
         timestamps: true,
+        createdAt: 'created_at', // явное указание имени столбца для createdAt
+        updatedAt: 'updated_at'
     }
   );
 
