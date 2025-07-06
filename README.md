@@ -1,11 +1,11 @@
 # Delivery
 
-[English version](https://github.com/stanis1avs/delivery_frontend/blob/main/README-en.md) 
+[English version](https://github.com/stanis1avs/delivery_frontend/blob/master/README-en.md) 
 
 На реализации проект сервиса доставки (приложение для курьеров). За основу был взят [Макет](https://www.figma.com/design/cZ3pCVoUAQUSqmNyXH1PtN/Delivery-Service-Dashboard---Admin-Panel--Community-?node-id=0-1&p=f&t=3kIzuy2rIRglQLOK-0)
 
-[Функционал работы приложения](https://github.com/stanis1avs/delivery_frontend/blob/main/FUNCTIONAL.md)
-[UML диаграммы](https://github.com/stanis1avs/delivery_frontend/blob/main/UML.md)
+[Функционал работы приложения](https://github.com/stanis1avs/delivery_frontend/blob/master/FUNCTIONAL.md)
+[UML диаграммы](https://github.com/stanis1avs/delivery_frontend/blob/master/UML.md)
 
 Новые фичи приложения [тут](https://github.com/users/stanis1avs/projects/4)
 
