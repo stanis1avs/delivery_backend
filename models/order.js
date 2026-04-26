@@ -32,7 +32,23 @@ module.exports = (sequelize) => {
                 type: DataTypes.BOOLEAN,
                 allowNull: false,
                 defaultValue: false,
-            }
+            },
+            pickup_location: {
+                type: DataTypes.GEOMETRY('POINT', 4326),
+                allowNull: true,
+            },
+            dropoff_location: {
+                type: DataTypes.GEOMETRY('POINT', 4326),
+                allowNull: true,
+            },
+            distance_meters: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+            },
+            estimated_duration_seconds: {
+                type: DataTypes.INTEGER,
+                allowNull: true,
+            },
         },
         {
             sequelize,

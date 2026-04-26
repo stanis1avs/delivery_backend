@@ -21,7 +21,11 @@ module.exports = (sequelize) => {
             },
             last_online_at: {
                 type: DataTypes.DATE,
-            }
+            },
+            location: {
+                type: DataTypes.GEOMETRY('POINT', 4326),
+                allowNull: true,
+            },
         },
         {
             sequelize,

@@ -7,6 +7,7 @@ require('dotenv').config();
 
 const externalRouter = require('./routers/externalRouter');
 const signupRouter = require('./routers/signup');
+const geoRouter = require('./routers/geoRouter');
 const expressSession = require('express-session');
 const initializeTelegramHandler = require('./telegramHandler');
 const socketBroadcast = require('./websocketServer');
@@ -52,6 +53,7 @@ const io = new Server(server, {
 
 app.use('/external-api', externalRouter);
 app.use('/api/signup', signupRouter);
+app.use('/api/geo', geoRouter);
 
 
 async function start() {
