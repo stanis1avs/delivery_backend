@@ -3,3 +3,5 @@
 node_modules
 sessions
 uploads
+
+osrm_data/
