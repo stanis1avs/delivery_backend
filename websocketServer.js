@@ -1,3 +1,5 @@
+const DISPATCHER_ROOM = 'dispatchers';
+
 class SocketBroadcast {
   constructor() {
     this.io = null;
@@ -5,15 +7,28 @@ class SocketBroadcast {
 
   init(ioInstance) {
     this.io = ioInstance;
+
+    this.io.on('connection', (socket) => {
+      // Клиент явно запрашивает вступление в комнату диспетчеров
+      socket.on('join-dispatchers', () => {
+        socket.join(DISPATCHER_ROOM);
+      });
+
+      socket.on('disconnect', () => {
+        socket.leave(DISPATCHER_ROOM);
+      });
+    });
   }
 
+  /**
+   * Отправить обновление заказа только диспетчерам.
+   */
   broadcastOrderUpdate(orderData) {
     if (!this.io) {
-      console.error('Socket.io instance not initialized');
+      console.error('Socket.io не инициализирован');
       return;
     }
-
-    this.io.emit('new-order', orderData);
+    this.io.to(DISPATCHER_ROOM).emit('new-order', orderData);
   }
 }
 
