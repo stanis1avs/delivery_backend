@@ -55,7 +55,9 @@ router.get('/telegram-login', async (req, res) => {
       telegramId: String(user.dataValues.telegram_id),
     });
 
-    const encodedUser = encodeURIComponent(JSON.stringify(user.dataValues));
+    // Включить courierId чтобы фронтенд мог отправлять геопозицию
+    const payload = { ...user.dataValues, courierId: courier.dataValues.id };
+    const encodedUser = encodeURIComponent(JSON.stringify(payload));
 
     return res.redirect(`${process.env.CLIENT_URL}?user=${encodedUser}`);
   } catch (err) {
