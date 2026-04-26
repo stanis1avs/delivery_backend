@@ -10,4 +10,4 @@ ENV PORT 7070
 
 EXPOSE $PORT
 
-CMD ["node",  "index.jS"]
+CMD ["node", "index.js"]
