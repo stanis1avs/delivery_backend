@@ -11,6 +11,7 @@ module.exports = {
       },
       courier_id: {
         type: Sequelize.UUID,
+        unique: true,
         references: {
           model: 'couriers',
           key: 'id',
