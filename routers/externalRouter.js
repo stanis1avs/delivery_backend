@@ -11,8 +11,7 @@ router.get('/telegram-callback', async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Invalid Telegram data' });
     }
   
-    // const response = await axios.post('http://localhost:7070/api/signup/telegram-login', {
-    const response = await axios.post('https://5ca6-86-62-30-199.ngrok-free.app/api/signup/telegram-login', {
+    const response = await axios.post(`${process.env.BACKEND_URL}/api/signup/telegram-login`, {
       telegramUserId, firstName, lastName, username, photoUrl
     });
   
