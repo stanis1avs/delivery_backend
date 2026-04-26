@@ -1,17 +1,15 @@
 const express = require('express');
+const cors = require('cors');
 const http = require('http');
 const { Pool } = require('pg');
 const { Server } = require('socket.io');
 require('dotenv').config();
 
-const signinRouter = require('./routers/signinRouter');
 const externalRouter = require('./routers/externalRouter');
 const signupRouter = require('./routers/signup');
 const expressSession = require('express-session');
 const initializeTelegramHandler = require('./telegramHandler');
 const socketBroadcast = require('./websocketServer');
-
-// const {sessionMiddleware, session, getUserId, wrap} = require('./middleware/middlewares');
 
 const app = express()
 const port = process.env.PORT
@@ -24,6 +22,10 @@ const pool = new Pool({
   port: process.env.DB_PORT,
 });
 
+app.use(cors({
+  origin: process.env.CLIENT_URL,
+  credentials: true,
+}));
 app.use(express.json());
 app.use(
   expressSession({
@@ -41,23 +43,14 @@ app.use(
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: process.env.CLIENT_URL,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
   path: '/socket.io',
 })
 
-io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
-
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-  });
-});
-
-
 app.use('/external-api', externalRouter);
-app.use('/api/signin', signinRouter);
 app.use('/api/signup', signupRouter);
 
 
