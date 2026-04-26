@@ -15,6 +15,7 @@ function verifyTelegramAuth(data) {
   if (!authDate || Date.now() / 1000 - authDate > 86400) return false;
 
   const checkString = Object.keys(rest)
+    .filter((k) => rest[k] !== undefined && rest[k] !== null)
     .sort()
     .map((k) => `${k}=${rest[k]}`)
     .join('\n');
@@ -33,12 +34,11 @@ function verifyTelegramAuth(data) {
 }
 
 router.get('/telegram-login', async (req, res) => {
-  const { id, first_name, last_name, username, photo_url, auth_date, hash } = req.query;
-
-  // Верификация подписи Telegram
-  if (!verifyTelegramAuth({ id, first_name, last_name, username, photo_url, auth_date, hash })) {
+  if (!verifyTelegramAuth(req.query)) {
     return res.status(403).json({ status: 'error', message: 'Invalid Telegram signature' });
   }
+
+  const { id, first_name, last_name, username, photo_url } = req.query;
 
   try {
     const user = await UserModule.findOrCreateUser({ id, first_name, last_name, username, photo_url });
