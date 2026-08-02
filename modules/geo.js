@@ -1,7 +1,9 @@
 const axios = require('axios');
 const { sequelize } = require('../models');
 
-const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5000';
+// Читается при каждом вызове, а не один раз при загрузке модуля: адрес можно
+// переопределить без перезапуска, и тесты подставляют сюда стаб вместо мока axios
+const osrmUrl = () => process.env.OSRM_URL || 'http://localhost:5000';
 
 // Окно «онлайн»: курьеры, не обновлявшие позицию дольше этого, считаются оффлайн
 // и не участвуют в подборе (BUG-116). По умолчанию 15 минут.
@@ -77,7 +79,7 @@ async function findNearbyCouriers(lat, lon, radiusMeters = 5000, excludeCourierI
  * @returns {{ distance_meters: number, duration_seconds: number, geometry: object }}
  */
 async function calculateRoute(fromLat, fromLon, toLat, toLon) {
-  const url = `${OSRM_URL}/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}`;
+  const url = `${osrmUrl()}/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}`;
 
   const { data } = await axios.get(url, {
     params: { overview: 'full', geometries: 'geojson', steps: false },

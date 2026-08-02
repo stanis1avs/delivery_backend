@@ -12,7 +12,8 @@
     "migrate:undo:all": "sequelize-cli db:migrate:undo:all",
     "seed": "sequelize-cli db:seed:all",
     "seed:undo": "sequelize-cli db:seed:undo:all",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "author": "Stanislav",
   "license": "ISC",
@@ -34,7 +35,7 @@
     "node-telegram-bot-api": "^0.66.0",
     "passport": "^0.6.0",
     "passport-local": "^1.0.0",
-    "pg": "^8.13.3",
+    "pg": "^8.22.0",
     "pg-hstore": "^2.3.4",
     "redis": "^4.7.0",
     "redis-cli": "^2.1.2",
@@ -43,6 +44,7 @@
     "socket.io": "^4.5.4"
   },
   "devDependencies": {
-    "sequelize-cli": "^6.6.2"
+    "sequelize-cli": "^6.6.2",
+    "vitest": "^4.1.10"
   }
 }
