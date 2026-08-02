@@ -1,27 +1,19 @@
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
-const { Pool } = require('pg');
 const { Server } = require('socket.io');
 require('dotenv').config();
 
-const externalRouter = require('./routers/externalRouter');
 const signupRouter = require('./routers/signup');
 const geoRouter = require('./routers/geoRouter');
+const ordersRouter = require('./routers/ordersRouter');
 const expressSession = require('express-session');
 const initializeTelegramHandler = require('./telegramHandler');
 const socketBroadcast = require('./websocketServer');
+const { sequelize } = require('./models');
 
 const app = express()
 const port = process.env.PORT
-
-const pool = new Pool({
-  user: process.env.DB_USERNAME,
-  host: process.env.DB_HOST,
-  database: process.env.DB_NAME,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-});
 
 app.use(cors({
   origin: process.env.CLIENT_URL,
@@ -30,7 +22,8 @@ app.use(cors({
 app.use(express.json());
 app.use(
   expressSession({
-    secret: process.env.SESSION_SECRET || 'defaultSecret',
+    // Имя переменной согласовано с .env и middleware (раньше читался несуществующий SESSION_SECRET) (BUG-111)
+    secret: process.env.COOKIE_SECRET || 'defaultSecret',
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -51,15 +44,16 @@ const io = new Server(server, {
   path: '/socket.io',
 })
 
-app.use('/external-api', externalRouter);
 app.use('/api/signup', signupRouter);
 app.use('/api/geo', geoRouter);
+app.use('/api/orders', ordersRouter);
 
 
 async function start() {
   try {
-    await pool.connect();
-    console.log('Connected to PostgreSQL');
+    // Проверка соединения через Sequelize — единый ORM проекта (раньше был лишний неосвобождаемый pg.Pool) (BUG-113)
+    await sequelize.authenticate();
+    console.log('Connected to PostgreSQL (Sequelize)');
     server.listen(port, () => console.log(`Server running on port ${port}`));
 
     socketBroadcast.init(io); 
