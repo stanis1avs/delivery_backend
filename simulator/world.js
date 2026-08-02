@@ -28,6 +28,15 @@ function rng(seed) {
   };
 }
 
+/** Прореживание полилинии: в записи не нужна точность до метра. */
+function thin(coords, max = 40) {
+  if (coords.length <= max) return coords;
+  const step = Math.ceil(coords.length / max);
+  const out = coords.filter((_, i) => i % step === 0);
+  if (out.at(-1) !== coords.at(-1)) out.push(coords.at(-1));
+  return out;
+}
+
 /** Профили поведения курьера при получении приглашения. */
 const PROFILES = {
   reliable: { accept: 0.95, ignore: 0.02, thinkSeconds: [5, 25] },
@@ -59,6 +68,11 @@ class World {
     this.orders = [];          // ожидающие назначения
     this.invites = [];         // активные приглашения
     this.routeCache = new Map();
+
+    // Запись для проигрывателя (--record). Включается флагом, чтобы обычные
+    // прогоны не платили за лишние вызовы OSRM и память.
+    this.timeline = [];   // отрезки движения и стояния курьеров
+    this.orderLog = [];   // жизнь заказов: появился, назначен, доставлен
   }
 
   between(min, max) {
@@ -97,12 +111,15 @@ class World {
       );
       await db.CourierReliability.create({ courier_id: courier.id, rating: 5.0 });
 
-      this.couriers.push({
+      const entry = {
         id: courier.id,
         ...at,
         profile: PROFILES[names[i % names.length]],
+        profileName: names[i % names.length],
         busyUntil: null,
-      });
+      };
+      this.couriers.push(entry);
+      this._idle(entry, 0);
     }
   }
 
@@ -120,31 +137,75 @@ class World {
     k -= 1;
 
     for (let i = 0; i < k; i++) {
-      this.orders.push({
+      const order = {
+        id: `o${this.orderLog.length + 1}`,
         pickup: this.randomPoint(),
         dropoff: this.randomPoint(),
         createdAt: this.now,
         rejectedBy: [],
-      });
+      };
+      this.orders.push(order);
       this.metrics.orderCreated();
+      if (this.cfg.record) {
+        this.orderLog.push({
+          id: order.id,
+          t0: this.now,
+          pickup: [order.pickup.lat, order.pickup.lon],
+          dropoff: [order.dropoff.lat, order.dropoff.lon],
+          assignedT: null,
+          doneT: null,
+        });
+      }
     }
   }
 
-  /** OSRM с кэшем: в прогоне одни и те же пары встречаются часто. */
-  async routeSeconds(from, to) {
+  /**
+   * OSRM с кэшем: в прогоне одни и те же пары встречаются часто.
+   * @returns {{seconds: number|null, path: [number,number][]}} path — [lat, lon]
+   */
+  async routeInfo(from, to) {
     const key = `${from.lat.toFixed(4)},${from.lon.toFixed(4)}-${to.lat.toFixed(4)},${to.lon.toFixed(4)}`;
     if (this.routeCache.has(key)) return this.routeCache.get(key);
 
-    let seconds;
+    let info = { seconds: null, path: [[from.lat, from.lon], [to.lat, to.lon]] };
     try {
       const r = await calculateRoute(from.lat, from.lon, to.lat, to.lon);
       // Нулевой маршрут = точки вне покрытия OSRM: считаем недостоверным
-      seconds = r.duration_seconds > 0 ? r.duration_seconds : null;
+      if (r.duration_seconds > 0) {
+        const coords = r.geometry?.coordinates || [];
+        info = {
+          seconds: r.duration_seconds,
+          // OSRM отдаёт [lon, lat]; прореживаем, иначе файл записи распухает
+          path: coords.length > 1 ? thin(coords).map(([lon, lat]) => [lat, lon]) : info.path,
+        };
+      }
     } catch {
-      seconds = null;
+      /* оставляем прямую линию и null */
     }
-    this.routeCache.set(key, seconds);
-    return seconds;
+    this.routeCache.set(key, info);
+    return info;
+  }
+
+  /** Отрезок стояния курьера на месте. */
+  _idle(courier, fromT) {
+    if (!this.cfg.record) return;
+    this.timeline.push({
+      c: courier.id,
+      t0: fromT,
+      t1: null, // закроется при следующем событии
+      at: [courier.lat, courier.lon],
+    });
+  }
+
+  _closeIdle(courierId, atT) {
+    if (!this.cfg.record) return;
+    for (let i = this.timeline.length - 1; i >= 0; i--) {
+      const seg = this.timeline[i];
+      if (seg.c === courierId && seg.t1 === null) {
+        seg.t1 = atT;
+        return;
+      }
+    }
   }
 
   /** Освободить курьеров, у которых закончился заказ. */
@@ -162,6 +223,7 @@ class World {
           { replacements: { cid: c.id, lon: c.lon, lat: c.lat } }
         );
         this.metrics.delivered();
+        this._idle(c, this.now);
       }
     }
   }
@@ -199,6 +261,32 @@ class World {
       }
 
       if (invite.action === 'accept') {
+        if (this.cfg.record) {
+          const startedAt = this.now;
+          const atPickup = startedAt + invite.pickupEta;
+          this._closeIdle(invite.courier.id, startedAt);
+          this.timeline.push({
+            c: invite.courier.id,
+            t0: startedAt,
+            t1: atPickup,
+            path: invite.pathToPickup,
+            leg: 'pickup',
+          });
+          this.timeline.push({
+            c: invite.courier.id,
+            t0: atPickup,
+            t1: startedAt + invite.tripSeconds,
+            path: invite.pathToDropoff,
+            leg: 'dropoff',
+          });
+          const rec = this.orderLog.find((o) => o.id === invite.order.id);
+          if (rec) {
+            rec.assignedT = startedAt;
+            rec.doneT = startedAt + invite.tripSeconds;
+            rec.courier = invite.courier.id;
+          }
+        }
+
         invite.courier.lat = invite.dropoff.lat;
         invite.courier.lon = invite.dropoff.lon;
         invite.courier.busyUntil = this.now + invite.tripSeconds;
@@ -271,7 +359,15 @@ class World {
       await this.setBusy(courier.id, true);
 
       const pickupEta = best.duration_seconds;
-      const legTwo = (await this.routeSeconds(order.pickup, order.dropoff)) ?? 0;
+      const legTwo = (await this.routeInfo(order.pickup, order.dropoff)).seconds ?? 0;
+
+      // Трассы нужны только проигрывателю
+      let pathToPickup = null;
+      let pathToDropoff = null;
+      if (this.cfg.record) {
+        pathToPickup = (await this.routeInfo({ lat: best.lat, lon: best.lon }, order.pickup)).path;
+        pathToDropoff = (await this.routeInfo(order.pickup, order.dropoff)).path;
+      }
       const [thinkMin, thinkMax] = courier.profile.thinkSeconds;
       const roll = this.random();
 
@@ -290,6 +386,8 @@ class World {
         pickupEta,
         tripSeconds: pickupEta + legTwo,
         sentAt: this.now,
+        pathToPickup,
+        pathToDropoff,
         // Игнор = ответа не будет никогда, сработает таймаут
         respondAt: action === 'ignore' ? Infinity : this.now + this.between(thinkMin, thinkMax),
         action,

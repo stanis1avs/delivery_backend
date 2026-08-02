@@ -20,6 +20,7 @@ require('dotenv').config({ path: path.join(BACKEND_DIR, '.env') });
 process.env.DB_NAME = SIM_DB; // .env не должен перебить, даже если там есть DB_NAME
 
 const { World } = require('./world');
+const { writeReplay } = require('./replay');
 
 // ── аргументы ───────────────────────────────────────────────────────────────
 
@@ -48,6 +49,11 @@ const CONFIG = {
 
 // Сколько прогонов на стратегию: результаты усредняются
 const REPEAT = parseInt(args.repeat, 10) || 3;
+
+// --record: записать первый прогон каждой стратегии в HTML-проигрыватель.
+// Запись требует лишних вызовов OSRM за геометрией, поэтому по умолчанию выключена.
+const RECORD = 'record' in args;
+const OUT_DIR = path.join(__dirname, 'out');
 
 // ── стратегии подбора ───────────────────────────────────────────────────────
 
@@ -168,6 +174,7 @@ function printComparison(results) {
 
   const db = require('../models');
   const results = {};
+  const replays = [];
 
   // Список стратегий строится под каждый мир: fair смотрит на его метрики
   const requested = args.strategy ? [args.strategy] : Object.keys(strategies({ metrics: new Map() }));
@@ -187,14 +194,17 @@ function printComparison(results) {
     for (let r = 0; r < REPEAT; r++) {
       await truncate(db);
 
-      const world = new World({ db, ...CONFIG, seed: CONFIG.seed + r });
+      // Пишем только первый прогон: остальные нужны лишь для усреднения чисел
+      const world = new World({ db, ...CONFIG, seed: CONFIG.seed + r, record: RECORD && r === 0 });
       const score = strategies(world)[name];
       if (!score) throw new Error(`Неизвестная стратегия: ${name}`);
       world.cfg.score = score;
 
       await world.spawnFleet();
       await world.run();
-      runs.push(world.metrics.summary());
+      const summary = world.metrics.summary();
+      runs.push(summary);
+      if (RECORD && r === 0) replays.push(writeReplay(world, name, summary, OUT_DIR));
       process.stdout.write('.');
     }
 
@@ -203,6 +213,12 @@ function printComparison(results) {
   }
 
   printComparison(results);
+
+  if (replays.length) {
+    console.log('');
+    console.log('Проигрыватели записи (открыть в браузере):');
+    for (const f of replays) console.log('  ' + f);
+  }
 
   console.log('');
   console.log('Метрики сняты на симуляции: они сравнивают стратегии между собой,');
