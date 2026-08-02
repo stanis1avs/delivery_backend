@@ -1,6 +1,6 @@
-const Redis = require('ioredis');
+const { createRedisClient } = require('./redisClient');
 
-const redis = new Redis();
+const redis = createRedisClient();
 
 redis.on('error', (err) => {
   console.error('Redis connection error:', err);

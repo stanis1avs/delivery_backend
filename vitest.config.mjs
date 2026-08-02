@@ -14,6 +14,11 @@ export default defineConfig({
     // DB_* подтянутся из .env, а имя базы останется тестовым.
     env: {
       DB_NAME: TEST_DB,
+      // Отдельная логическая база Redis: воркер делает SCAN courier:*:status
+      // и в базе 0 подхватил бы ключи работающего приложения
+      REDIS_DB: '1',
+      // Реальный токен не нужен — запросы уходят в локальный стаб (helpers/telegramStub.js)
+      TELEGRAM_BOT_TOKEN: '000000000:test-token',
     },
     globalSetup: ['./tests/setup/globalSetup.js'],
     setupFiles: ['./tests/setup/loadEnv.js'],

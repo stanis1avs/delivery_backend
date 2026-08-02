@@ -72,6 +72,51 @@ async function createCourier({
   return courier;
 }
 
+/**
+ * Создать заказ.
+ *
+ * @param {object} opts
+ * @param {{lat,lon}|null} opts.pickup   — null → заказ без точки забора
+ * @param {{lat,lon}|null} opts.dropoff
+ * @param {string} opts.status
+ */
+async function createOrder({
+  pickup = north(800),
+  dropoff = north(2500),
+  status = 'Pending',
+  customerName = 'Test Customer',
+} = {}) {
+  const n = nextSeq();
+
+  const [[row]] = await db.sequelize.query(
+    `INSERT INTO orders
+       (id, customer_name, status, total_price, is_exclusive,
+        pickup_location, dropoff_location, created_at, updated_at)
+     VALUES (
+       gen_random_uuid(), :name, :status, 1500, false,
+       ${pickup ? 'ST_SetSRID(ST_MakePoint(:pLon, :pLat), 4326)' : 'NULL'},
+       ${dropoff ? 'ST_SetSRID(ST_MakePoint(:dLon, :dLat), 4326)' : 'NULL'},
+       NOW(), NOW()
+     )
+     RETURNING id`,
+    {
+      replacements: {
+        name: `${customerName} ${n}`,
+        status,
+        ...(pickup ? { pLon: pickup.lon, pLat: pickup.lat } : {}),
+        ...(dropoff ? { dLon: dropoff.lon, dLat: dropoff.lat } : {}),
+      },
+    }
+  );
+
+  return db.Order.findByPk(row.id);
+}
+
+/** Текущее состояние заказа из БД (свежее, без кэша модели). */
+async function reloadOrder(orderId) {
+  return db.Order.findByPk(orderId);
+}
+
 /** Очистить все таблицы между тестами. CASCADE — из-за внешних ключей. */
 async function truncateAll() {
   await db.sequelize.query(
@@ -79,4 +124,13 @@ async function truncateAll() {
   );
 }
 
-module.exports = { db, BASE, north, south, createCourier, truncateAll };
+module.exports = {
+  db,
+  BASE,
+  north,
+  south,
+  createCourier,
+  createOrder,
+  reloadOrder,
+  truncateAll,
+};

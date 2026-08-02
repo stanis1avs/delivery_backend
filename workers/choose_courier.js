@@ -4,11 +4,17 @@ require('dotenv').config();
 
 const { Order, Courier, User } = require('../models');
 const { findBestCourier, calculateRoute } = require('../modules/geo');
-const Redis = require('ioredis');
+const { createRedisClient } = require('../modules/redisClient');
 const TelegramBot = require('node-telegram-bot-api');
 
-const redis = new Redis();
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
+const redis = createRedisClient();
+
+// TELEGRAM_API_URL переопределяет адрес Bot API: тесты направляют его на локальный
+// стаб, чтобы прогон не ходил в сеть и уведомления можно было проверить
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
+  polling: false,
+  ...(process.env.TELEGRAM_API_URL ? { baseApiUrl: process.env.TELEGRAM_API_URL } : {}),
+});
 
 // TTL записи о назначенном курьере: 5 минут
 const PENDING_COURIER_TTL = 300;

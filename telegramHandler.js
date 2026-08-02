@@ -1,12 +1,12 @@
 const TelegramBot = require('node-telegram-bot-api');
-const Redis = require("ioredis");
+const { createRedisClient } = require('./modules/redisClient');
 const OrderModule = require('./modules/orders');
 const CourierModule = require('./modules/couriers');
 const socketBroadcast = require('./websocketServer');
 const { Order } = require('./models');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const redis = new Redis();
+const redis = createRedisClient();
 
 async function handleOrderRejection(courier_telegram_id, courier_id, order_id) {
   const redis_rejected_key = `rejected_order:${order_id}`;
