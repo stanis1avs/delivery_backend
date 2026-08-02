@@ -10,6 +10,7 @@ const ordersRouter = require('./routers/ordersRouter');
 const expressSession = require('express-session');
 const initializeTelegramHandler = require('./telegramHandler');
 const socketBroadcast = require('./websocketServer');
+const { startPolling } = require('./workers/choose_courier');
 const { sequelize } = require('./models');
 
 const app = express()
@@ -56,8 +57,15 @@ async function start() {
     console.log('Connected to PostgreSQL (Sequelize)');
     server.listen(port, () => console.log(`Server running on port ${port}`));
 
-    socketBroadcast.init(io); 
+    socketBroadcast.init(io);
     initializeTelegramHandler();
+
+    // Воркер распределения заказов раньше не запускался ничем — заказы в Pending
+    // никто не обрабатывал (BUG-102). WORKER_IN_PROCESS=false, если воркер поднимается
+    // отдельным процессом (npm run worker) — например, при масштабировании.
+    if (process.env.WORKER_IN_PROCESS !== 'false') {
+      startPolling();
+    }
   } catch (err) {
     console.log('Failed to connect to the database:', err);
   }

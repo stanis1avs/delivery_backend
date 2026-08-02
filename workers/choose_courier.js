@@ -1,14 +1,20 @@
+// dotenv — строго до require('../models'): models/index.js собирает DSN из process.env
+// на этапе загрузки модуля, и при обратном порядке получал postgres://undefined:undefined@...
+require('dotenv').config();
+
 const { Order, Courier, User } = require('../models');
 const { findBestCourier, calculateRoute } = require('../modules/geo');
 const Redis = require('ioredis');
 const TelegramBot = require('node-telegram-bot-api');
-require('dotenv').config();
 
 const redis = new Redis();
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
 
 // TTL записи о назначенном курьере: 5 минут
 const PENDING_COURIER_TTL = 300;
+
+// Интервал опроса очереди заказов
+const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS, 10) || 5000;
 
 const REJECTED_KEY = (orderId) => `rejected_order:${orderId}`;
 const INVITE_LOCK_KEY = (courierId) => `invite_lock:${courierId}`;
@@ -67,8 +73,34 @@ async function sendTelegramNotification(courierTelegramId, orderId, durationSeco
   }
 }
 
+/**
+ * Вернуть в очередь заказы, приглашение по которым истекло.
+ *
+ * На время ожидания ответа курьера заказ переводится в Waiting. Если курьер молча
+ * проигнорировал уведомление, ключ pending_courier:{orderId} истекает по TTL, а статус
+ * остаётся Waiting — воркер выбирает только Pending, поэтому такой заказ больше никогда
+ * никому не назначается и теряется. Возвращаем его в Pending, чтобы подобрать другого.
+ */
+async function requeueExpiredInvitations() {
+  const waiting = await Order.findAll({ where: { status: 'Waiting' } });
+
+  for (const order of waiting) {
+    const invitationAlive = await redis.exists(`pending_courier:${order.id}`);
+    if (invitationAlive) continue;
+
+    // Условный UPDATE: не перетереть статус, если курьер ответил параллельно
+    await Order.update(
+      { status: 'Pending' },
+      { where: { id: order.id, status: 'Waiting' } }
+    );
+  }
+}
+
 async function processOrders() {
   try {
+    // Сначала вернуть в очередь заказы с истёкшим приглашением
+    await requeueExpiredInvitations();
+
     const orders = await Order.findAll({ where: { status: 'Pending' } });
     if (orders.length === 0) return;
 
@@ -136,6 +168,16 @@ async function processOrders() {
         }
       }
 
+      // Зафиксировать назначенного курьера в Redis (для авторизации в telegramHandler).
+      // Ставится ДО перевода в Waiting: иначе requeueExpiredInvitations успела бы увидеть
+      // Waiting-заказ без ключа приглашения и сразу вернуть его в Pending.
+      await redis.set(
+        `pending_courier:${order.id}`,
+        String(telegramId),
+        'EX',
+        PENDING_COURIER_TTL
+      );
+
       // Сохранить расчётные данные в заказ
       const updateData = { status: 'Waiting' };
       if (routeToDropoff) {
@@ -143,14 +185,6 @@ async function processOrders() {
         updateData.estimated_duration_seconds = routeToDropoff.duration_seconds;
       }
       await order.update(updateData);
-
-      // Зафиксировать назначенного курьера в Redis (для авторизации в telegramHandler)
-      await redis.set(
-        `pending_courier:${order.id}`,
-        String(telegramId),
-        'EX',
-        PENDING_COURIER_TTL
-      );
 
       await sendTelegramNotification(telegramId, order.id, best.duration_seconds);
     }
@@ -201,9 +235,16 @@ async function processOrderViaRedis(order) {
 }
 
 function startPolling() {
-  setInterval(() => {
+  console.log(`Воркер распределения заказов запущен (опрос раз в ${POLL_INTERVAL_MS} мс)`);
+  return setInterval(() => {
     processOrders().catch(console.error);
-  }, 5000);
+  }, POLL_INTERVAL_MS);
 }
 
-startPolling();
+// Самозапуск только при прямом вызове `node workers/choose_courier.js` (npm run worker).
+// При импорте из index.js воркер стартует явным вызовом startPolling() (BUG-102).
+if (require.main === module) {
+  startPolling();
+}
+
+module.exports = { processOrders, requeueExpiredInvitations, startPolling };

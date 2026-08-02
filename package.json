@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "worker": "node workers/choose_courier.js",
     "migrate": "sequelize-cli db:migrate",
     "migrate:status": "sequelize-cli db:migrate:status",
     "migrate:undo": "sequelize-cli db:migrate:undo",
