@@ -58,7 +58,12 @@ async function start() {
     server.listen(port, () => console.log(`Server running on port ${port}`));
 
     socketBroadcast.init(io);
-    initializeTelegramHandler();
+
+    // TELEGRAM_ENABLED=false — для E2E-прогонов: polling конфликтует с рабочим
+    // инстансом бота (Telegram отдаёт 409 на второй getUpdates) и требует сети
+    if (process.env.TELEGRAM_ENABLED !== 'false') {
+      initializeTelegramHandler();
+    }
 
     // Воркер распределения заказов раньше не запускался ничем — заказы в Pending
     // никто не обрабатывал (BUG-102). WORKER_IN_PROCESS=false, если воркер поднимается
