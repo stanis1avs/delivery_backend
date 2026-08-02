@@ -3,6 +3,7 @@ const Redis = require("ioredis");
 const OrderModule = require('./modules/orders');
 const CourierModule = require('./modules/couriers');
 const socketBroadcast = require('./websocketServer');
+const { Order } = require('./models');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const redis = new Redis();
@@ -22,11 +23,12 @@ async function handleOrderRejection(courier_telegram_id, courier_id, order_id) {
 
   try {
     await redis.sadd(redis_rejected_key, String(courier_telegram_id));
-    // Сбросить статус заказа обратно в Pending, чтобы воркер мог назначить другого курьера
-    const order = await OrderModule.findById(order_id);
-    if (order && order.status === 'Waiting') {
-      await order.update({ status: 'Pending' });
-    }
+    // Условный переход Waiting → Pending одним запросом: заказ мог параллельно уйти
+    // в Progress другим обработчиком, и read-modify-write его бы перетёр
+    await Order.update(
+      { status: 'Pending' },
+      { where: { id: order_id, status: 'Waiting' } }
+    );
     // Убрать запись о назначенном курьере и освободить резерв (BUG-108)
     await redis.del(`pending_courier:${order_id}`);
     await redis.del(`invite_lock:${courier_id}`);
@@ -77,10 +79,21 @@ function initializeTelegramHandler() {
       }
 
       if (action === "accept") {
-        await order.update({
-          executor_id: courier.id,
-          status: "Progress",
-        });
+        // Проверка статуса и запись — одним условным UPDATE. Раньше статус
+        // проверялся в JS выше, и два одновременных callback_query (двойной тап
+        // по «Принять», гонка accept/reject) успевали пройти проверку оба.
+        const [accepted] = await Order.update(
+          { executor_id: courier.id, status: 'Progress' },
+          { where: { id: order_id, status: 'Waiting' } }
+        );
+
+        if (accepted === 0) {
+          await bot.answerCallbackQuery(callback_id, {
+            text: "Статус заказа уже изменён.",
+            show_alert: true,
+          });
+          return;
+        }
 
         // Пометить курьера занятым, чтобы воркер не назначал ему новые заказы (BUG-104)
         await CourierModule.updateCourierStatus(courier.id, { has_order: true });
