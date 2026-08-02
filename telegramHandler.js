@@ -7,7 +7,17 @@ const socketBroadcast = require('./websocketServer');
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const redis = new Redis();
 
-async function handleOrderRejection(courier_telegram_id, order_id) {
+/**
+ * Преобразовать PostGIS-геометрию заказа (GeoJSON Point, coordinates: [lon, lat])
+ * в { lat, lon } — формат, который ожидает фронтенд для построения маршрута (BUG-106).
+ */
+function toLatLon(geo) {
+  if (!geo || !Array.isArray(geo.coordinates)) return null;
+  const [lon, lat] = geo.coordinates;
+  return { lat, lon };
+}
+
+async function handleOrderRejection(courier_telegram_id, courier_id, order_id) {
   const redis_rejected_key = `rejected_order:${order_id}`;
 
   try {
@@ -17,8 +27,9 @@ async function handleOrderRejection(courier_telegram_id, order_id) {
     if (order && order.status === 'Waiting') {
       await order.update({ status: 'Pending' });
     }
-    // Убрать запись о назначенном курьере
+    // Убрать запись о назначенном курьере и освободить резерв (BUG-108)
     await redis.del(`pending_courier:${order_id}`);
+    await redis.del(`invite_lock:${courier_id}`);
   } catch (err) {
     console.error(`Ошибка обработки отказа от заказа ${order_id}:`, err);
   }
@@ -71,21 +82,29 @@ function initializeTelegramHandler() {
           status: "Progress",
         });
 
-        // Удалить запись о назначенном курьере — заказ принят
+        // Пометить курьера занятым, чтобы воркер не назначал ему новые заказы (BUG-104)
+        await CourierModule.updateCourierStatus(courier.id, { has_order: true });
+        await redis.hset(`courier:${courier.id}:status`, 'has_order', 'true');
+
+        // Удалить запись о назначенном курьере и резерв — заказ принят
         await redis.del(`pending_courier:${order_id}`);
+        await redis.del(`invite_lock:${courier.id}`);
 
         await bot.answerCallbackQuery(callback_id, { text: "Заказ принят!" });
         await bot.sendMessage(courier_telegram_id, `Вы приняли заказ ID: ${order_id}.`);
 
-        socketBroadcast.broadcastOrderUpdate({
+        // Адресная доставка заказа конкретному курьеру + координаты для маршрута (BUG-106, BUG-107)
+        socketBroadcast.broadcastOrderToCourier(courier.id, {
           id: order.id,
           status: 'Progress',
           details: order.customer_name || 'Заказ принят курьером',
+          pickup_location: toLatLon(order.pickup_location),
+          dropoff_location: toLatLon(order.dropoff_location),
         });
       }
 
       if (action === "reject") {
-        await handleOrderRejection(courier_telegram_id, order_id);
+        await handleOrderRejection(courier_telegram_id, courier.id, order_id);
         await bot.answerCallbackQuery(callback_id, { text: "Заказ отклонён." });
         await bot.sendMessage(courier_telegram_id, `Вы отклонили заказ ID: ${order_id}.`);
       }
