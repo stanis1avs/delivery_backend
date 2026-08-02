@@ -27,10 +27,15 @@ async function handleOrderRejection(courier_telegram_id, courier_id, order_id) {
   }
 }
 
-function initializeTelegramHandler() {
-  const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-
-  bot.on("callback_query", async (callback_query) => {
+/**
+ * Обработать нажатие inline-кнопки «Принять»/«Отклонить».
+ *
+ * Вынесено из замыкания и экспортируется отдельно, чтобы тесты вызывали его
+ * напрямую и могли дождаться завершения: через bot.emit результат не дождаться,
+ * а поднимать настоящий polling ради теста незачем.
+ */
+async function handleCallbackQuery(bot, callback_query) {
+  {
     const [action, order_id] = callback_query.data.split(":");
     const courier_telegram_id = callback_query.from.id;
     const callback_id = callback_query.id;
@@ -118,9 +123,27 @@ function initializeTelegramHandler() {
         show_alert: true,
       });
     }
+  }
+}
+
+/**
+ * @param {object} [options]
+ * @param {boolean} [options.polling=true] — в тестах выключается, чтобы бот не опрашивал API
+ * @returns {TelegramBot} инстанс бота
+ */
+function initializeTelegramHandler(options = {}) {
+  const bot = new TelegramBot(BOT_TOKEN, {
+    polling: options.polling !== false,
+    // Тесты направляют Bot API на локальный стаб
+    ...(process.env.TELEGRAM_API_URL ? { baseApiUrl: process.env.TELEGRAM_API_URL } : {}),
   });
 
+  bot.on('callback_query', (callback_query) => handleCallbackQuery(bot, callback_query));
+
   console.log('Telegram Bot инициализирован');
+  return bot;
 }
 
 module.exports = initializeTelegramHandler;
+module.exports.handleCallbackQuery = handleCallbackQuery;
+module.exports.handleOrderRejection = handleOrderRejection;
