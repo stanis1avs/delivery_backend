@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Стенд подбора курьеров</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg:#14161a; --panel:#1d2027; --line:#2b2f38; --text:#e8eaed; --muted:#9aa0aa;
+    --free:#22c55e; --busy:#6b7280; --pickup:#ef4444; --drop:#3b82f6; --win:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;
+       background:var(--bg);color:var(--text)}
+  #app{display:grid;grid-template-columns:1fr 380px;height:100vh}
+  #map{height:100%;background:#0d0f12;cursor:crosshair}
+  aside{background:var(--panel);border-left:1px solid var(--line);padding:14px;overflow-y:auto}
+  h1{font-size:15px;margin:0 0 10px}
+  h2{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+     margin:16px 0 6px;font-weight:600}
+  .hint{color:var(--muted);font-size:12px;margin-bottom:10px}
+  .modes{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  button{background:#2b303a;color:var(--text);border:1px solid var(--line);border-radius:6px;
+         padding:7px 11px;cursor:pointer;font-size:13px}
+  button:hover{background:#353b47}
+  button.on{background:#3b82f6;border-color:#3b82f6}
+  button.primary{background:#16a34a;border-color:#16a34a;width:100%;padding:10px;font-weight:600}
+  button.primary:hover{background:#15803d}
+  button.ghost{background:transparent;color:var(--muted);padding:3px 7px;font-size:12px}
+  .card{background:#22262e;border:1px solid var(--line);border-radius:8px;
+        padding:9px 10px;margin-bottom:7px;font-size:13px}
+  .card .top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+  .card .meta{color:var(--muted);font-size:11.5px;margin-top:3px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}
+  label{display:block;color:var(--muted);font-size:11px;margin-bottom:2px}
+  input,select{width:100%;background:#171a20;color:var(--text);border:1px solid var(--line);
+               border-radius:5px;padding:5px 7px;font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+  th{text-align:left;color:var(--muted);font-weight:500;padding:3px 4px;border-bottom:1px solid var(--line)}
+  td{padding:3px 4px;border-bottom:1px solid #23262d}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tr.winner td{color:var(--win);font-weight:600}
+  .pill{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+  .marker{width:13px;height:13px;border-radius:50%;border:2px solid #fff;
+          box-shadow:0 1px 4px rgba(0,0,0,.5)}
+  .marker.sq{border-radius:3px;width:11px;height:11px}
+  .empty{color:var(--muted);font-size:12.5px;padding:6px 0}
+  @media(max-width:900px){#app{grid-template-columns:1fr}#map{height:50vh}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <aside>
+    <h1>Стенд подбора курьеров</h1>
+    <div class="hint" id="hint">Выберите режим и кликайте по карте.</div>
+
+    <div class="modes">
+      <button id="mCourier" class="on">+ Курьер</button>
+      <button id="mOrder">+ Заказ</button>
+      <button id="mNone">Просмотр</button>
+      <button class="ghost" id="clear">Очистить всё</button>
+    </div>
+
+    <h2>Стратегия подбора</h2>
+    <select id="strategy">
+      <option value="current">current — время − рейтинг×30 (как в проде)</option>
+      <option value="nearest">nearest — только время в пути</option>
+      <option value="rating-heavy">rating-heavy — время − рейтинг×120</option>
+    </select>
+
+    <div style="margin-top:12px">
+      <button class="primary" id="run">Подобрать курьеров</button>
+    </div>
+
+    <h2>Курьеры (<span id="cCount">0</span>)</h2>
+    <div id="couriers"><div class="empty">Пока никого. Режим «+ Курьер» и клик по карте.</div></div>
+
+    <h2>Заказы (<span id="oCount">0</span>)</h2>
+    <div id="orders"><div class="empty">Пока пусто. Режим «+ Заказ»: первый клик — забор, второй — доставка.</div></div>
+
+    <h2>Результат подбора</h2>
+    <div id="result"><div class="empty">Нажмите «Подобрать курьеров».</div></div>
+  </aside>
+</div>
+
+<script>
+let PRESETS = null;
+let mode = 'courier';
+const couriers = [];
+const orders = [];
+let pendingPickup = null;   // первый клик заказа
+let seq = { c: 0, o: 0 };
+
+const $ = (id) => document.getElementById(id);
+const rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const plate = () => {
+  const L = 'АВЕКМНОРСТУХ';
+  const d = () => Math.floor(Math.random() * 10);
+  return `${rnd(L)}${d()}${d()}${d()}${rnd(L)}${rnd(L)}`;
+};
+
+// ── карта ───────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([40.5952146, -74.1827119], 13);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap, © CARTO', maxZoom: 19,
+}).addTo(map);
+
+const layers = { couriers: L.layerGroup().addTo(map), orders: L.layerGroup().addTo(map),
+                 routes: L.layerGroup().addTo(map) };
+
+const icon = (color, square) => L.divIcon({
+  className: '',
+  html: `<div class="marker${square ? ' sq' : ''}" style="background:${color}"></div>`,
+  iconSize: [13, 13], iconAnchor: [7, 7],
+});
+
+map.on('click', (e) => {
+  const { lat, lng } = e.latlng;
+  if (mode === 'courier') addCourier(lat, lng);
+  else if (mode === 'order') addOrderPoint(lat, lng);
+});
+
+// ── автозаполнение ──────────────────────────────────────────────────────────
+function addCourier(lat, lon) {
+  const [first, last] = rnd(PRESETS.names);
+  const v = rnd(PRESETS.vehicles);
+  couriers.push({
+    key: 'c' + ++seq.c,
+    first_name: first, last_name: last,
+    level: rnd(PRESETS.levels),
+    vehicle_model: v.model, payload_kg: v.payload_kg, volume_m3: v.volume_m3,
+    license_plate: plate(),
+    rating: Number((3.5 + Math.random() * 1.5).toFixed(2)),
+    completed_orders: Math.floor(Math.random() * 40),
+    has_order: false,
+    offline_seconds: 0,
+    lat, lon,
+  });
+  renderCouriers();
+}
+
+function addOrderPoint(lat, lon) {
+  if (!pendingPickup) {
+    pendingPickup = { lat, lon };
+    $('hint').textContent = 'Точка забора поставлена. Теперь кликните точку доставки.';
+    renderOrders();
+    return;
+  }
+  orders.push({
+    key: 'o' + ++seq.o,
+    customer_name: rnd(PRESETS.customers),
+    customer_phone: '+1 718 555-0' + (100 + Math.floor(Math.random() * 899)),
+    total_price: 500 + Math.floor(Math.random() * 40) * 50,
+    pickup: pendingPickup,
+    dropoff: { lat, lon },
+    pickup_address: rnd(PRESETS.streets) + ' ' + (1 + Math.floor(Math.random() * 400)),
+    dropoff_address: rnd(PRESETS.streets) + ' ' + (1 + Math.floor(Math.random() * 400)),
+  });
+  pendingPickup = null;
+  $('hint').textContent = 'Заказ добавлен. Следующий клик — новая точка забора.';
+  renderOrders();
+}
+
+// ── отрисовка ───────────────────────────────────────────────────────────────
+function renderCouriers() {
+  layers.couriers.clearLayers();
+  $('cCount').textContent = couriers.length;
+
+  if (!couriers.length) {
+    $('couriers').innerHTML = '<div class="empty">Пока никого. Режим «+ Курьер» и клик по карте.</div>';
+    return;
+  }
+
+  $('couriers').innerHTML = couriers.map((c, i) => `
+    <div class="card">
+      <div class="top">
+        <div><span class="pill" style="background:${c.has_order ? 'var(--busy)' : 'var(--free)'}"></span>
+             <b>${c.first_name} ${c.last_name}</b></div>
+        <button class="ghost" data-del-c="${i}">удалить</button>
+      </div>
+      <div class="meta">${c.vehicle_model} · ${c.license_plate} · ${c.level}</div>
+      <div class="row">
+        <div><label>Рейтинг</label><input data-f="rating" data-i="${i}" type="number"
+             step="0.1" min="1" max="5" value="${c.rating}"></div>
+        <div><label>Не в сети, с</label><input data-f="offline_seconds" data-i="${i}"
+             type="number" step="60" min="0" value="${c.offline_seconds}"></div>
+      </div>
+      <div class="row">
+        <div><label>Занят заказом</label>
+          <select data-f="has_order" data-i="${i}">
+            <option value="false"${!c.has_order ? ' selected' : ''}>нет</option>
+            <option value="true"${c.has_order ? ' selected' : ''}>да</option>
+          </select></div>
+        <div><label>Выполнено</label><input data-f="completed_orders" data-i="${i}"
+             type="number" min="0" value="${c.completed_orders}"></div>
+      </div>
+    </div>`).join('');
+
+  couriers.forEach((c) => {
+    L.marker([c.lat, c.lon], { icon: icon(c.has_order ? '#6b7280' : '#22c55e') })
+      .bindTooltip(`${c.first_name} ${c.last_name} · ★${c.rating}`, { direction: 'top' })
+      .addTo(layers.couriers);
+  });
+}
+
+function renderOrders() {
+  layers.orders.clearLayers();
+  $('oCount').textContent = orders.length;
+
+  $('orders').innerHTML = orders.length
+    ? orders.map((o, i) => `
+      <div class="card">
+        <div class="top">
+          <div><span class="pill" style="background:var(--pickup)"></span><b>${o.customer_name}</b></div>
+          <button class="ghost" data-del-o="${i}">удалить</button>
+        </div>
+        <div class="meta">${o.pickup_address} → ${o.dropoff_address}</div>
+        <div class="meta">${o.total_price} ₽ · ${o.customer_phone}</div>
+      </div>`).join('')
+    : '<div class="empty">Пока пусто. Режим «+ Заказ»: первый клик — забор, второй — доставка.</div>';
+
+  orders.forEach((o) => {
+    L.marker([o.pickup.lat, o.pickup.lon], { icon: icon('#ef4444', true) })
+      .bindTooltip('Забор: ' + o.customer_name, { direction: 'top' }).addTo(layers.orders);
+    L.marker([o.dropoff.lat, o.dropoff.lon], { icon: icon('#3b82f6', true) })
+      .bindTooltip('Доставка: ' + o.customer_name, { direction: 'top' }).addTo(layers.orders);
+    L.polyline([[o.pickup.lat, o.pickup.lon], [o.dropoff.lat, o.dropoff.lon]],
+      { color: '#3b82f6', weight: 1, dashArray: '4,5', opacity: .5 }).addTo(layers.orders);
+  });
+
+  if (pendingPickup) {
+    L.marker([pendingPickup.lat, pendingPickup.lon], { icon: icon('#f59e0b', true) })
+      .bindTooltip('Ждёт точку доставки', { direction: 'top' }).addTo(layers.orders);
+  }
+}
+
+// ── правка полей ────────────────────────────────────────────────────────────
+$('couriers').addEventListener('input', (e) => {
+  const f = e.target.dataset.f, i = e.target.dataset.i;
+  if (!f) return;
+  const v = e.target.value;
+  couriers[i][f] = f === 'has_order' ? v === 'true' : Number(v);
+  renderCouriers();
+});
+
+document.addEventListener('click', (e) => {
+  if (e.target.dataset.delC !== undefined) { couriers.splice(+e.target.dataset.delC, 1); renderCouriers(); }
+  if (e.target.dataset.delO !== undefined) { orders.splice(+e.target.dataset.delO, 1); renderOrders(); }
+});
+
+// ── режимы ──────────────────────────────────────────────────────────────────
+const setMode = (m) => {
+  mode = m;
+  for (const [id, val] of [['mCourier', 'courier'], ['mOrder', 'order'], ['mNone', 'none']]) {
+    $(id).classList.toggle('on', val === m);
+  }
+  $('hint').textContent = m === 'courier'
+    ? 'Клик по карте ставит курьера. Данные подставляются автоматически, поля можно поправить.'
+    : m === 'order'
+      ? 'Первый клик — точка забора, второй — точка доставки.'
+      : 'Просмотр: клики по карте ничего не добавляют.';
+};
+$('mCourier').onclick = () => setMode('courier');
+$('mOrder').onclick = () => setMode('order');
+$('mNone').onclick = () => setMode('none');
+$('clear').onclick = () => {
+  couriers.length = 0; orders.length = 0; pendingPickup = null;
+  layers.routes.clearLayers();
+  $('result').innerHTML = '<div class="empty">Нажмите «Подобрать курьеров».</div>';
+  renderCouriers(); renderOrders();
+};
+
+// ── запуск подбора ──────────────────────────────────────────────────────────
+$('run').onclick = async () => {
+  if (!couriers.length || !orders.length) {
+    $('result').innerHTML = '<div class="empty">Нужен хотя бы один курьер и один заказ.</div>';
+    return;
+  }
+  $('run').textContent = 'Считаю…';
+  $('run').disabled = true;
+  layers.routes.clearLayers();
+
+  try {
+    await fetch('/api/scenario', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ couriers, orders }),
+    });
+
+    const res = await fetch('/api/dispatch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ strategy: $('strategy').value }),
+    });
+    const { assignments } = await res.json();
+    showResult(assignments);
+  } catch (err) {
+    $('result').innerHTML = '<div class="empty">Ошибка: ' + err.message + '</div>';
+  } finally {
+    $('run').textContent = 'Подобрать курьеров';
+    $('run').disabled = false;
+  }
+};
+
+function showResult(assignments) {
+  if (!assignments.length) {
+    $('result').innerHTML = '<div class="empty">Нет заказов в подборе.</div>';
+    return;
+  }
+
+  $('result').innerHTML = assignments.map((a) => {
+    if (!a.candidates.length) {
+      return `<div class="card"><b>${a.customer}</b>
+              <div class="meta">Свободных курьеров в радиусе 10 км нет</div></div>`;
+    }
+    const rows = a.candidates.map((c) => `
+      <tr class="${c.courier_id === a.chosen ? 'winner' : ''}">
+        <td>${c.name}</td>
+        <td class="num">${Math.round(c.duration_seconds)}</td>
+        <td class="num">${Number(c.rating).toFixed(2)}</td>
+        <td class="num">${Math.round(c.score)}</td>
+      </tr>`).join('');
+    return `<div class="card">
+        <b>${a.customer}</b>
+        <div class="meta">кандидатов: ${a.candidates.length} · выбран выделен</div>
+        <table>
+          <tr><th>Курьер</th><th class="num">ETA, с</th><th class="num">★</th><th class="num">оценка</th></tr>
+          ${rows}
+        </table>
+      </div>`;
+  }).join('');
+
+  // Маршрут до точки забора для выбранного курьера
+  for (const a of assignments) {
+    if (!a.route) continue;
+    L.geoJSON(a.route, { style: { color: '#f59e0b', weight: 4, opacity: .9 } }).addTo(layers.routes);
+  }
+}
+
+// ── старт ───────────────────────────────────────────────────────────────────
+fetch('/api/presets').then((r) => r.json()).then((p) => {
+  PRESETS = p;
+  map.setView([p.center.lat, p.center.lon], 13);
+  setMode('courier');
+  renderCouriers(); renderOrders();
+});
+</script>
+</body>
+</html>

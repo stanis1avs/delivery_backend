@@ -14,7 +14,8 @@
     "seed:undo": "sequelize-cli db:seed:undo:all",
     "test": "vitest run",
     "test:watch": "vitest",
-    "simulate": "node simulator/run.js"
+    "simulate": "node simulator/run.js",
+    "simulate:ui": "node simulator/server.js"
   },
   "author": "Stanislav",
   "license": "ISC",

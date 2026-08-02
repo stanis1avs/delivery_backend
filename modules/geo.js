@@ -119,6 +119,9 @@ const defaultScore = (c) => c.duration_seconds - (c.rating || 0) * RATING_BONUS_
  * @param {(candidate) => number} [options.score] — альтернативная функция стоимости
  *        (меньше — лучше). Нужна стенду для сравнения стратегий подбора;
  *        в проде не передаётся и работает формула по умолчанию.
+ * @param {(candidates: object[]) => void} [options.onCandidates] — получить весь
+ *        отсортированный список кандидатов с их оценками. Нужно интерактивному
+ *        стенду, чтобы показать, почему выбран именно этот курьер.
  * @returns {object|null} — строка с courier_id, lat, lon, rating | null если нет доступных
  */
 async function findBestCourier(pickupLat, pickupLon, excludeCourierIds = [], options = {}) {
@@ -160,6 +163,10 @@ async function findBestCourier(pickupLat, pickupLon, excludeCourierIds = [], opt
 
   const score = options.score || defaultScore;
   valid.sort((a, b) => score(a) - score(b));
+
+  if (options.onCandidates) {
+    options.onCandidates(valid.map((c) => ({ ...c, score: score(c) })));
+  }
 
   return valid[0];
 }
