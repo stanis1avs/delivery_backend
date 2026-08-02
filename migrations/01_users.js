@@ -18,7 +18,8 @@ module.exports = {
         allowNull: true,
       },
       telegram_id: {
-        type: Sequelize.INTEGER,
+        // BIGINT: Telegram-ID превышают диапазон INTEGER (BUG-105)
+        type: Sequelize.BIGINT,
         allowNull: true,
         unique: true,
       },
