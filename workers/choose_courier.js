@@ -10,6 +10,39 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: false });
 // TTL записи о назначенном курьере: 5 минут
 const PENDING_COURIER_TTL = 300;
 
+const REJECTED_KEY = (orderId) => `rejected_order:${orderId}`;
+const INVITE_LOCK_KEY = (courierId) => `invite_lock:${courierId}`;
+
+/**
+ * Неблокирующий перебор ключей по паттерну через SCAN (BUG-115).
+ * KEYS блокирует Redis на больших объёмах — SCAN итерирует курсором.
+ */
+async function scanKeys(pattern) {
+  const found = [];
+  let cursor = '0';
+  do {
+    const [next, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+    cursor = next;
+    found.push(...batch);
+  } while (cursor !== '0');
+  return found;
+}
+
+/**
+ * Преобразовать telegram_id отклонивших курьеров (хранятся в Redis-множестве
+ * rejected_order:{orderId}) в список их courier_id для исключения из подбора.
+ */
+async function getRejectedCourierIds(orderId) {
+  const telegramIds = await redis.smembers(REJECTED_KEY(orderId));
+  if (!telegramIds.length) return [];
+
+  const couriers = await Courier.findAll({
+    attributes: ['id'],
+    include: [{ model: User, attributes: [], where: { telegram_id: telegramIds } }],
+  });
+  return couriers.map((c) => c.id);
+}
+
 async function sendTelegramNotification(courierTelegramId, orderId, durationSeconds) {
   const eta = durationSeconds ? `~${Math.round(durationSeconds / 60)} мин` : '';
   const options = {
@@ -45,8 +78,32 @@ async function processOrders() {
 
       const [pickupLon, pickupLat] = order.pickup_location.coordinates;
 
-      // Найти лучшего курьера по геодистанции и рейтингу
-      const best = await findBestCourier(pickupLat, pickupLon);
+      // Исключить курьеров, уже отклонивших этот заказ (BUG-103)
+      const rejectedCourierIds = await getRejectedCourierIds(order.id);
+
+      // Подобрать курьера, пропуская тех, кто уже держит активное приглашение.
+      // invite_lock — атомарный резерв курьера на время ожидания ответа (BUG-108),
+      // самоистекает по TTL, поэтому проигнорированное приглашение не «блокирует» курьера навсегда.
+      const exclude = [...rejectedCourierIds];
+      let best = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const candidate = await findBestCourier(pickupLat, pickupLon, exclude);
+        if (!candidate) break;
+
+        const locked = await redis.set(
+          INVITE_LOCK_KEY(candidate.courier_id),
+          String(order.id),
+          'EX',
+          PENDING_COURIER_TTL,
+          'NX'
+        );
+        if (locked === 'OK') {
+          best = candidate;
+          break;
+        }
+        // Курьер уже приглашён на другой заказ — пробуем следующего по близости
+        exclude.push(candidate.courier_id);
+      }
 
       if (!best) {
         // Нет доступных курьеров с геопозицией — пробуем Redis-fallback
@@ -60,7 +117,11 @@ async function processOrders() {
         include: [{ model: User }],
       });
 
-      if (!courier || !courier.User) continue;
+      if (!courier || !courier.User) {
+        // Откатить резерв, если курьер «битый»
+        await redis.del(INVITE_LOCK_KEY(best.courier_id));
+        continue;
+      }
 
       const telegramId = courier.User.telegram_id;
 
@@ -102,8 +163,8 @@ async function processOrders() {
  * Fallback: выбор курьера по Redis (для курьеров без геопозиции в БД).
  */
 async function processOrderViaRedis(order) {
-  const redisRejectedKey = `rejected_order:${order.id}`;
-  const keys = await redis.keys('courier:*:status');
+  const redisRejectedKey = REJECTED_KEY(order.id);
+  const keys = await scanKeys('courier:*:status');
 
   for (const key of keys) {
     const courierData = await redis.hgetall(key);
@@ -112,6 +173,19 @@ async function processOrderViaRedis(order) {
 
     const isRejected = await redis.sismember(redisRejectedKey, String(courierData.telegramId));
     if (isRejected) continue;
+
+    // courier:{courierId}:status → извлекаем courierId
+    const courierId = key.split(':')[1];
+
+    // Атомарно зарезервировать курьера (BUG-108). Занят приглашением — пропускаем.
+    const locked = await redis.set(
+      INVITE_LOCK_KEY(courierId),
+      String(order.id),
+      'EX',
+      PENDING_COURIER_TTL,
+      'NX'
+    );
+    if (locked !== 'OK') continue;
 
     await redis.set(
       `pending_courier:${order.id}`,
