@@ -3,6 +3,11 @@ const { sequelize } = require('../models');
 
 const OSRM_URL = process.env.OSRM_URL || 'http://localhost:5000';
 
+// Окно «онлайн»: курьеры, не обновлявшие позицию дольше этого, считаются оффлайн
+// и не участвуют в подборе (BUG-116). По умолчанию 15 минут.
+const COURIER_ONLINE_WINDOW_SECONDS =
+  parseInt(process.env.COURIER_ONLINE_WINDOW_SECONDS, 10) || 900;
+
 /**
  * Обновить геопозицию курьера в БД.
  * @param {string} courierId  — UUID курьера
@@ -25,8 +30,14 @@ async function updateCourierLocation(courierId, lat, lon) {
 /**
  * Найти доступных курьеров в радиусе radiusMeters от точки (lat, lon).
  * Возвращает массив { courier_id, distance_meters }, отсортированный по дистанции.
+ *
+ * @param {string[]} [excludeCourierIds] — UUID курьеров, которых нужно исключить
+ *        (например, отклонивших заказ или уже имеющих активное приглашение).
  */
-async function findNearbyCouriers(lat, lon, radiusMeters = 5000) {
+async function findNearbyCouriers(lat, lon, radiusMeters = 5000, excludeCourierIds = []) {
+  const hasExclusions = Array.isArray(excludeCourierIds) && excludeCourierIds.length > 0;
+  const excludeClause = hasExclusions ? 'AND cs.courier_id NOT IN (:excludeCourierIds)' : '';
+
   return sequelize.query(
     `SELECT
        cs.courier_id,
@@ -38,6 +49,9 @@ async function findNearbyCouriers(lat, lon, radiusMeters = 5000) {
      WHERE
        cs.has_order = false
        AND cs.location IS NOT NULL
+       AND cs.last_online_at IS NOT NULL
+       AND cs.last_online_at > NOW() - make_interval(secs => :onlineWindow)
+       ${excludeClause}
        AND ST_DWithin(
          cs.location::geography,
          ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)::geography,
@@ -46,7 +60,13 @@ async function findNearbyCouriers(lat, lon, radiusMeters = 5000) {
      ORDER BY distance_meters ASC
      LIMIT 10`,
     {
-      replacements: { lon, lat, radius: radiusMeters },
+      replacements: {
+        lon,
+        lat,
+        radius: radiusMeters,
+        onlineWindow: COURIER_ONLINE_WINDOW_SECONDS,
+        ...(hasExclusions ? { excludeCourierIds } : {}),
+      },
       type: sequelize.QueryTypes.SELECT,
     }
   );
@@ -83,10 +103,11 @@ async function calculateRoute(fromLat, fromLon, toLat, toLon) {
  *
  * @param {number} pickupLat
  * @param {number} pickupLon
+ * @param {string[]} [excludeCourierIds] — UUID курьеров, которых нужно исключить из подбора
  * @returns {object|null} — строка с courier_id, lat, lon, rating | null если нет доступных
  */
-async function findBestCourier(pickupLat, pickupLon) {
-  const nearby = await findNearbyCouriers(pickupLat, pickupLon, 10000);
+async function findBestCourier(pickupLat, pickupLon, excludeCourierIds = []) {
+  const nearby = await findNearbyCouriers(pickupLat, pickupLon, 10000, excludeCourierIds);
   if (nearby.length === 0) return null;
 
   // Обогатить топ-5 кандидатов реальным OSRM-временем
@@ -99,7 +120,7 @@ async function findBestCourier(pickupLat, pickupLon) {
            ST_X(cs.location::geometry) AS lon,
            COALESCE(cr.rating, 5.0) AS rating
          FROM couriers_status cs
-         LEFT JOIN courier_reliabilities cr ON cr.courier_id = cs.courier_id
+         LEFT JOIN couriers_reliability cr ON cr.courier_id = cs.courier_id
          WHERE cs.courier_id = :id`,
         {
           replacements: { id: c.courier_id },
