@@ -2,3 +2,10 @@
 node_modules
 Dockerfile
 uploads
+
+# Не вкладывать секреты в образ (BUG-112)
+.env
+*.env
+
+# Карта OSRM монтируется как volume в сервис osrm, в образ бэкенда не нужна
+osrm_data
