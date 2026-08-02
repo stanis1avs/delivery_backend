@@ -3,6 +3,39 @@ const router = express.Router();
 const { Order, CourierStatus, CourierReliability } = require('../models');
 const RedisModule = require('../modules/redis');
 const { requireCourier } = require('../auth/courierToken');
+const { toLatLon } = require('../modules/geo');
+
+/**
+ * GET /api/orders/active
+ * Активные заказы курьера (статус Progress).
+ *
+ * Нужен, чтобы Sidebar восстанавливал список после перезагрузки страницы:
+ * раньше он наполнялся только событием new-order, поэтому принятый заказ
+ * исчезал из интерфейса при F5, хотя в БД оставался.
+ */
+router.get('/active', requireCourier, async (req, res) => {
+  try {
+    const orders = await Order.findAll({
+      where: { executor_id: req.courierId, status: 'Progress' },
+      order: [['updated_at', 'DESC']],
+    });
+
+    return res.json(
+      orders.map((o) => ({
+        id: o.id,
+        status: o.status,
+        details: o.customer_name || 'Заказ',
+        pickup_location: toLatLon(o.pickup_location),
+        dropoff_location: toLatLon(o.dropoff_location),
+        distance_meters: o.distance_meters,
+        estimated_duration_seconds: o.estimated_duration_seconds,
+      }))
+    );
+  } catch (err) {
+    console.error('Ошибка получения активных заказов:', err);
+    return res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
 
 /**
  * Освободить курьера: снять флаг занятости в БД и Redis.

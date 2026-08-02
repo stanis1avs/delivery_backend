@@ -4,19 +4,11 @@ const OrderModule = require('./modules/orders');
 const CourierModule = require('./modules/couriers');
 const socketBroadcast = require('./websocketServer');
 const { Order } = require('./models');
+// Общий хелпер: PostGIS-геометрия → { lat, lon } для фронтенда (BUG-106)
+const { toLatLon } = require('./modules/geo');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const redis = new Redis();
-
-/**
- * Преобразовать PostGIS-геометрию заказа (GeoJSON Point, coordinates: [lon, lat])
- * в { lat, lon } — формат, который ожидает фронтенд для построения маршрута (BUG-106).
- */
-function toLatLon(geo) {
-  if (!geo || !Array.isArray(geo.coordinates)) return null;
-  const [lon, lat] = geo.coordinates;
-  return { lat, lon };
-}
 
 async function handleOrderRejection(courier_telegram_id, courier_id, order_id) {
   const redis_rejected_key = `rejected_order:${order_id}`;

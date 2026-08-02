@@ -153,4 +153,20 @@ async function findBestCourier(pickupLat, pickupLon, excludeCourierIds = []) {
   return valid[0];
 }
 
-module.exports = { updateCourierLocation, findNearbyCouriers, calculateRoute, findBestCourier };
+/**
+ * PostGIS-геометрия (GeoJSON Point, coordinates: [lon, lat]) → { lat, lon },
+ * формат, который ожидает фронтенд для построения маршрута.
+ */
+function toLatLon(geo) {
+  if (!geo || !Array.isArray(geo.coordinates)) return null;
+  const [lon, lat] = geo.coordinates;
+  return { lat, lon };
+}
+
+module.exports = {
+  updateCourierLocation,
+  findNearbyCouriers,
+  calculateRoute,
+  findBestCourier,
+  toLatLon,
+};
