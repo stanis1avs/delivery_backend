@@ -13,7 +13,8 @@
     "seed": "sequelize-cli db:seed:all",
     "seed:undo": "sequelize-cli db:seed:undo:all",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "simulate": "node simulator/run.js"
   },
   "author": "Stanislav",
   "license": "ISC",

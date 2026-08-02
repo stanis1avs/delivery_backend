@@ -98,6 +98,15 @@ async function calculateRoute(fromLat, fromLon, toLat, toLon) {
   };
 }
 
+// Во сколько секунд пути обходится одна звезда рейтинга. Коэффициент подобран
+// на глаз и до появления стенда проверить его было нечем — вынесен в env,
+// чтобы стенд мог прогонять варианты (simulator/).
+const RATING_BONUS_SECONDS =
+  parseFloat(process.env.RATING_BONUS_SECONDS) || 30;
+
+/** Стоимость кандидата по умолчанию: меньше — лучше. */
+const defaultScore = (c) => c.duration_seconds - (c.rating || 0) * RATING_BONUS_SECONDS;
+
 /**
  * Выбрать лучшего курьера для заказа.
  * Критерий: минимальное время OSRM-маршрута до точки pickup,
@@ -106,9 +115,13 @@ async function calculateRoute(fromLat, fromLon, toLat, toLon) {
  * @param {number} pickupLat
  * @param {number} pickupLon
  * @param {string[]} [excludeCourierIds] — UUID курьеров, которых нужно исключить из подбора
+ * @param {object} [options]
+ * @param {(candidate) => number} [options.score] — альтернативная функция стоимости
+ *        (меньше — лучше). Нужна стенду для сравнения стратегий подбора;
+ *        в проде не передаётся и работает формула по умолчанию.
  * @returns {object|null} — строка с courier_id, lat, lon, rating | null если нет доступных
  */
-async function findBestCourier(pickupLat, pickupLon, excludeCourierIds = []) {
+async function findBestCourier(pickupLat, pickupLon, excludeCourierIds = [], options = {}) {
   const nearby = await findNearbyCouriers(pickupLat, pickupLon, 10000, excludeCourierIds);
   if (nearby.length === 0) return null;
 
@@ -145,12 +158,8 @@ async function findBestCourier(pickupLat, pickupLon, excludeCourierIds = []) {
   const valid = candidates.filter(Boolean);
   if (valid.length === 0) return null;
 
-  // Сортировка: меньше время прибытия + бонус за рейтинг (30 сек за 1 звезду)
-  valid.sort((a, b) => {
-    const scoreA = a.duration_seconds - (a.rating || 0) * 30;
-    const scoreB = b.duration_seconds - (b.rating || 0) * 30;
-    return scoreA - scoreB;
-  });
+  const score = options.score || defaultScore;
+  valid.sort((a, b) => score(a) - score(b));
 
   return valid[0];
 }
@@ -171,4 +180,6 @@ module.exports = {
   calculateRoute,
   findBestCourier,
   toLatLon,
+  defaultScore,
+  RATING_BONUS_SECONDS,
 };
