@@ -30,7 +30,9 @@ services:
     container_name: osrm
     volumes:
       - ./osrm_data:/data
-    command: osrm-routed --algorithm mld /data/volga-fed-district-260425.osrm
+    # Набор данных переключается переменной OSRM_DATASET без правки этого файла.
+    # Файл должен лежать в osrm_data/ и быть обработан extract/partition/customize.
+    command: osrm-routed --algorithm mld /data/${OSRM_DATASET:-new-york-latest}.osrm
     ports:
       - "5000:5000"
     restart: unless-stopped
