@@ -1,0 +1,11 @@
+const path = require('path');
+
+// sequelize-cli по умолчанию ищет config/config.json, а в проекте конфиг —
+// config/config.js (читает переменные из .env). Без этого файла каждую команду
+// пришлось бы запускать с флагом --config config/config.js.
+module.exports = {
+  config: path.resolve(__dirname, 'config', 'config.js'),
+  'models-path': path.resolve(__dirname, 'models'),
+  'migrations-path': path.resolve(__dirname, 'migrations'),
+  'seeders-path': path.resolve(__dirname, 'seeders'),
+};
