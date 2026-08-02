@@ -13,6 +13,11 @@ class SocketBroadcast {
         socket.join(DISPATCHER_ROOM);
       });
 
+      // Персональная комната курьера для адресной доставки его заказов (BUG-107)
+      socket.on('join-courier', (courierId) => {
+        if (courierId) socket.join(`courier:${courierId}`);
+      });
+
       socket.on('disconnect', () => {
         socket.leave(DISPATCHER_ROOM);
       });
@@ -25,6 +30,16 @@ class SocketBroadcast {
   broadcastOrderUpdate(orderData) {
     if (!this.io) return;
     this.io.to(DISPATCHER_ROOM).emit('new-order', orderData);
+  }
+
+  /**
+   * Новый/принятый заказ → конкретному курьеру-исполнителю (BUG-107).
+   * @param {string} courierId
+   * @param {object} orderData
+   */
+  broadcastOrderToCourier(courierId, orderData) {
+    if (!this.io || !courierId) return;
+    this.io.to(`courier:${courierId}`).emit('new-order', orderData);
   }
 
   /**
