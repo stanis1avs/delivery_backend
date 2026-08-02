@@ -1,5 +1,7 @@
 # Delivery
 
+[frontend](https://github.com/stanis1avs/delivery_frontend)
+
 Проект сервиса доставки — приложение для курьеров. За основу взят [макет Figma](https://www.figma.com/design/cZ3pCVoUAQUSqmNyXH1PtN/Delivery-Service-Dashboard---Admin-Panel--Community-?node-id=0-1&p=f&t=3kIzuy2rIRglQLOK-0).
 
 [Функционал приложения](https://github.com/stanis1avs/delivery_frontend/blob/master/FUNCTIONAL.md)
