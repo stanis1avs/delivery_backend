@@ -3,16 +3,17 @@ const router = express.Router();
 const { updateCourierLocation, calculateRoute, findNearbyCouriers } = require('../modules/geo');
 const socketBroadcast = require('../websocketServer');
 const { Courier, User } = require('../models');
+const { requireCourier } = require('../auth/courierToken');
 
 /**
  * POST /api/geo/courier/location
  * Обновить геопозицию курьера.
  * Body: { courierId: string, lat: number, lon: number }
  *
- * В текущей реализации courierId передаётся в теле запроса,
- * т.к. полноценный session-based checkAuth ещё не интегрирован.
+ * Требует валидный courier-токен (заголовок X-Courier-Token), привязанный к courierId,
+ * чтобы исключить подмену чужой геопозиции (BUG-110).
  */
-router.post('/courier/location', async (req, res) => {
+router.post('/courier/location', requireCourier, async (req, res) => {
   const { courierId, lat, lon } = req.body;
 
   if (!courierId) {

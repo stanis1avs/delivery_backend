@@ -4,6 +4,7 @@ const router = express.Router();
 const UserModule = require('../modules/signup');
 const CourierModule = require('../modules/couriers');
 const RedisModule = require('../modules/redis');
+const { signCourierToken } = require('../auth/courierToken');
 
 function verifyTelegramAuth(data) {
   const { hash, ...rest } = data;
@@ -55,8 +56,13 @@ router.get('/telegram-login', async (req, res) => {
       telegramId: String(user.dataValues.telegram_id),
     });
 
-    // Включить courierId чтобы фронтенд мог отправлять геопозицию
-    const payload = { ...user.dataValues, courierId: courier.dataValues.id };
+    // Включить courierId и подписанный токен, чтобы фронтенд мог авторизованно
+    // отправлять геопозицию и завершать заказы (BUG-110)
+    const payload = {
+      ...user.dataValues,
+      courierId: courier.dataValues.id,
+      geoToken: signCourierToken(courier.dataValues.id),
+    };
     const encodedUser = encodeURIComponent(JSON.stringify(payload));
 
     return res.redirect(`${process.env.CLIENT_URL}?user=${encodedUser}`);
