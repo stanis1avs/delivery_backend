@@ -2,9 +2,10 @@
 // на этапе загрузки модуля, и при обратном порядке получал postgres://undefined:undefined@...
 require('dotenv').config();
 
-const { Order, Courier, User } = require('../models');
+const { Order, Courier, User, sequelize } = require('../models');
 const { findBestCourier, calculateRoute } = require('../modules/geo');
 const { createRedisClient } = require('../modules/redisClient');
+const { recordInvitationResponse } = require('../modules/reliability');
 const TelegramBot = require('node-telegram-bot-api');
 
 const redis = createRedisClient();
@@ -24,6 +25,20 @@ const POLL_INTERVAL_MS = parseInt(process.env.WORKER_POLL_INTERVAL_MS, 10) || 50
 
 const REJECTED_KEY = (orderId) => `rejected_order:${orderId}`;
 const INVITE_LOCK_KEY = (courierId) => `invite_lock:${courierId}`;
+
+// Кого и когда пригласили. Живёт дольше самого приглашения: когда pending_courier
+// истекает, реапер должен ещё знать, кому засчитать игнор.
+const INVITE_META_KEY = (orderId) => `invite_meta:${orderId}`;
+const INVITE_META_TTL = PENDING_COURIER_TTL * 2;
+
+async function rememberInvitation(orderId, courierId) {
+  await redis.set(
+    INVITE_META_KEY(orderId),
+    JSON.stringify({ courierId, sentAt: Date.now() }),
+    'EX',
+    INVITE_META_TTL
+  );
+}
 
 /**
  * Неблокирующий перебор ключей по паттерну через SCAN (BUG-115).
@@ -95,10 +110,25 @@ async function requeueExpiredInvitations() {
     if (invitationAlive) continue;
 
     // Условный UPDATE: не перетереть статус, если курьер ответил параллельно
-    await Order.update(
+    const [requeued] = await Order.update(
       { status: 'Pending' },
       { where: { id: order.id, status: 'Waiting' } }
     );
+
+    if (!requeued) continue;
+
+    // Приглашение проигнорировали — это худший исход для рейтинга: заказ
+    // простоял в Waiting весь TTL, тогда как отказ освободил бы его сразу
+    const meta = await redis.get(INVITE_META_KEY(order.id));
+    if (meta) {
+      try {
+        const { courierId } = JSON.parse(meta);
+        await recordInvitationResponse(courierId, 'timeout');
+      } catch {
+        /* повреждённые метаданные приглашения — пропускаем */
+      }
+      await redis.del(INVITE_META_KEY(order.id));
+    }
   }
 }
 
@@ -183,6 +213,7 @@ async function processOrders() {
         'EX',
         PENDING_COURIER_TTL
       );
+      await rememberInvitation(order.id, best.courier_id);
 
       // Сохранить расчётные данные в заказ
       const updateData = { status: 'Waiting' };
@@ -200,10 +231,32 @@ async function processOrders() {
 }
 
 /**
- * Fallback: выбор курьера по Redis (для курьеров без геопозиции в БД).
+ * Курьеры, у которых в БД действительно нет геопозиции.
+ *
+ * Именно для них задуман Redis-fallback. Раньше он перебирал всех подряд, и
+ * курьер с известными координатами, но за пределами радиуса, всё равно получал
+ * заказ: наблюдали назначение за 8333 км. Гео-путь уже принял решение по таким
+ * курьерам — fallback не должен его отменять.
+ */
+async function couriersWithoutLocation() {
+  const rows = await sequelize.query(
+    `SELECT c.id
+       FROM couriers c
+       LEFT JOIN couriers_status cs ON cs.courier_id = c.id
+      WHERE cs.location IS NULL`,
+    { type: sequelize.QueryTypes.SELECT }
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * Fallback: выбор курьера по Redis (только для курьеров без геопозиции в БД).
  */
 async function processOrderViaRedis(order) {
   const redisRejectedKey = REJECTED_KEY(order.id);
+  const eligible = await couriersWithoutLocation();
+  if (eligible.size === 0) return;
+
   const keys = await scanKeys('courier:*:status');
 
   for (const key of keys) {
@@ -216,6 +269,9 @@ async function processOrderViaRedis(order) {
 
     // courier:{courierId}:status → извлекаем courierId
     const courierId = key.split(':')[1];
+
+    // Есть координаты в БД — значит гео-путь его уже рассмотрел и отверг
+    if (!eligible.has(courierId)) continue;
 
     // Атомарно зарезервировать курьера (BUG-108). Занят приглашением — пропускаем.
     const locked = await redis.set(
@@ -233,6 +289,7 @@ async function processOrderViaRedis(order) {
       'EX',
       PENDING_COURIER_TTL
     );
+    await rememberInvitation(order.id, courierId);
 
     await order.update({ status: 'Waiting' });
     await sendTelegramNotification(courierData.telegramId, order.id, null);

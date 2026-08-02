@@ -4,6 +4,32 @@ const OrderModule = require('./modules/orders');
 const CourierModule = require('./modules/couriers');
 const socketBroadcast = require('./websocketServer');
 const { Order } = require('./models');
+const { recordInvitationResponse } = require('./modules/reliability');
+
+// Метаданные приглашения кладёт воркер: кто приглашён и когда. Нужны, чтобы
+// посчитать время раздумий и обновить рейтинг курьера.
+const INVITE_META_KEY = (orderId) => `invite_meta:${orderId}`;
+
+/**
+ * Списать реакцию курьера в рейтинг и убрать метаданные приглашения.
+ * Ошибки не пробрасываются: рейтинг вторичен по отношению к самому заказу.
+ */
+async function scoreResponse(courierId, orderId, event) {
+  try {
+    const raw = await redis.get(INVITE_META_KEY(orderId));
+    let responseSeconds = null;
+
+    if (raw) {
+      const { sentAt } = JSON.parse(raw);
+      if (Number.isFinite(sentAt)) responseSeconds = (Date.now() - sentAt) / 1000;
+      await redis.del(INVITE_META_KEY(orderId));
+    }
+
+    await recordInvitationResponse(courierId, event, responseSeconds);
+  } catch (err) {
+    console.error(`Не удалось учесть реакцию курьера ${courierId}:`, err.message);
+  }
+}
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const redis = createRedisClient();
@@ -98,6 +124,8 @@ async function handleCallbackQuery(bot, callback_query) {
         await redis.del(`pending_courier:${order_id}`);
         await redis.del(`invite_lock:${courier.id}`);
 
+        await scoreResponse(courier.id, order_id, 'accept');
+
         await bot.answerCallbackQuery(callback_id, { text: "Заказ принят!" });
         await bot.sendMessage(courier_telegram_id, `Вы приняли заказ ID: ${order_id}.`);
 
@@ -113,6 +141,7 @@ async function handleCallbackQuery(bot, callback_query) {
 
       if (action === "reject") {
         await handleOrderRejection(courier_telegram_id, courier.id, order_id);
+        await scoreResponse(courier.id, order_id, 'reject');
         await bot.answerCallbackQuery(callback_id, { text: "Заказ отклонён." });
         await bot.sendMessage(courier_telegram_id, `Вы отклонили заказ ID: ${order_id}.`);
       }

@@ -195,6 +195,70 @@ describe('processOrderViaRedis — fallback', () => {
     expect(tg.messages()).toHaveLength(1);
   });
 
+  it('НЕ назначает курьера, у которого есть координаты, но он вне радиуса', async () => {
+    // Наблюдалось на живом прогоне: заказ ушёл курьеру за 8333 км, потому что
+    // fallback перебирал всех подряд. Гео-путь уже отверг такого курьера —
+    // fallback не должен отменять это решение.
+    //
+    // Курьер без координат нужен, чтобы fallback дошёл до перебора: иначе
+    // сработает ранний выход по пустому списку и фильтр не будет задействован.
+    // Он занят, поэтому выбрать его нельзя — решает именно проверка геопозиции.
+    const busyNoGeo = await createCourier({ at: null });
+    const faraway = await createCourier({ at: north(500000) });
+
+    for (const [courier, busy] of [[busyNoGeo, 'true'], [faraway, 'false']]) {
+      const u = await db.User.findByPk(courier.user_id);
+      await redis.hset(`courier:${courier.id}:status`, {
+        telegramId: String(u.telegram_id),
+        has_order: busy,
+      });
+    }
+
+    const order = await createOrder();
+
+    await worker.processOrders();
+
+    expect((await reloadOrder(order.id)).status).toBe('Pending');
+    expect(await redis.get(INVITE_KEY(faraway.id))).toBeNull();
+    expect(tg.messages()).toHaveLength(0);
+  });
+
+  it('ранний выход: если курьеров без координат нет вообще, fallback никого не трогает', async () => {
+    const faraway = await createCourier({ at: north(500000) });
+    const u = await db.User.findByPk(faraway.user_id);
+    await redis.hset(`courier:${faraway.id}:status`, {
+      telegramId: String(u.telegram_id),
+      has_order: 'false',
+    });
+
+    const order = await createOrder();
+
+    await worker.processOrders();
+
+    expect((await reloadOrder(order.id)).status).toBe('Pending');
+  });
+
+  it('назначает курьера без координат, даже если рядом есть далёкий с координатами', async () => {
+    const faraway = await createCourier({ at: north(500000) });
+    const noGeo = await createCourier({ at: null });
+
+    for (const c of [faraway, noGeo]) {
+      const u = await db.User.findByPk(c.user_id);
+      await redis.hset(`courier:${c.id}:status`, {
+        telegramId: String(u.telegram_id),
+        has_order: 'false',
+      });
+    }
+
+    const order = await createOrder();
+
+    await worker.processOrders();
+
+    expect((await reloadOrder(order.id)).status).toBe('Waiting');
+    expect(await redis.get(INVITE_KEY(noGeo.id))).toBe(String(order.id));
+    expect(await redis.get(INVITE_KEY(faraway.id))).toBeNull();
+  });
+
   it('пропускает занятого курьера из Redis', async () => {
     const courier = await createCourier({ at: null });
     const user = await db.User.findByPk(courier.user_id);

@@ -15,7 +15,10 @@ import fixtures from './helpers/fixtures.js';
 import osrmStub from './helpers/osrmStub.js';
 
 const { db, BASE, north, south, createCourier, truncateAll } = fixtures;
-const { startOsrmStub, fixedRoute, pointToDeadPort } = osrmStub;
+const { startOsrmStub, fixedRoute, pointToDeadPort, isOsrmReachable } = osrmStub;
+
+// Живой OSRM есть локально, но не в CI — там датасет не поднимается
+const OSRM_LIVE = await isOsrmReachable();
 
 /** Активный стаб/восстановление адреса OSRM — снимается после каждого теста. */
 let restoreOsrm = null;
@@ -131,7 +134,7 @@ describe('findNearbyCouriers', () => {
 });
 
 describe('calculateRoute', () => {
-  it('G-06: возвращает дистанцию, время и геометрию маршрута', async () => {
+  it.skipIf(!OSRM_LIVE)('G-06: возвращает дистанцию, время и геометрию маршрута', async () => {
     // Живой OSRM: координаты Статен-Айленда, экстракт new-york-latest
     const to = north(2000);
 

@@ -13,7 +13,9 @@ import osrmStub from './helpers/osrmStub.js';
 
 const { db, BASE, north, createCourier, createOrder, reloadOrder, truncateAll } = fixtures;
 const { buildApp, authHeaders, courierToken } = appHelper;
-const { startOsrmStub, fixedRoute, pointToDeadPort } = osrmStub;
+const { startOsrmStub, fixedRoute, pointToDeadPort, isOsrmReachable } = osrmStub;
+
+const OSRM_LIVE = await isOsrmReachable();
 
 let app;
 let restoreOsrm = null;
@@ -126,7 +128,7 @@ describe('POST /api/geo/courier/location', () => {
 });
 
 describe('GET /api/geo/route', () => {
-  it('A-04: возвращает маршрут между двумя точками', async () => {
+  it.skipIf(!OSRM_LIVE)('A-04: возвращает маршрут между двумя точками', async () => {
     const to = north(2000);
 
     const res = await request(app).get('/api/geo/route').query({

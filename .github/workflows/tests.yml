@@ -1,0 +1,73 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      # Именно postgis-образ: логика подбора курьера — это SQL с ST_DWithin,
+      # на обычном postgres миграция 00_enable_postgis не пройдёт
+      postgres:
+        image: postgis/postgis:15-3.3
+        env:
+          POSTGRES_USER: ci_user
+          POSTGRES_PASSWORD: ci_password
+          POSTGRES_DB: delivery
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_user"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_USERNAME: ci_user
+      DB_PASSWORD: ci_password
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      # DB_NAME переопределяется на delivery_test в vitest.config.mjs
+      DB_NAME: delivery
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
+      COOKIE_SECRET: ci-secret-not-a-real-key
+      # OSRM в раннере нет: экстракт Нью-Йорка весит 2.6 ГБ. Два теста,
+      # которым нужен живой маршрутизатор, помечены skipIf и пропускаются;
+      # остальные ходят в локальный HTTP-стаб
+      OSRM_URL: http://127.0.0.1:1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Тесты
+        run: npm test
+
+      - name: Миграции откатываются
+        # Проверяем, что down-миграции рабочие: без этого откат деплоя
+        # обнаруживается только в проде
+        run: |
+          npm run migrate
+          npx sequelize-cli db:migrate:undo:all
+          npm run migrate

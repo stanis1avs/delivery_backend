@@ -66,4 +66,26 @@ function pointToDeadPort() {
   };
 }
 
-module.exports = { startOsrmStub, fixedRoute, pointToDeadPort };
+/**
+ * Доступен ли настоящий OSRM с загруженным датасетом.
+ *
+ * В CI его нет: экстракт Нью-Йорка весит 2.6 ГБ, тащить его в раннер незачем.
+ * Тесты, которым нужен именно живой маршрутизатор (их два), помечаются skipIf.
+ * Остальные работают со стабом и идут везде.
+ */
+async function isOsrmReachable() {
+  const url = process.env.OSRM_URL || 'http://localhost:5000';
+  try {
+    const res = await fetch(`${url}/nearest/v1/driving/-74.1827119,40.5952146`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    // Пустой инстанс без датасета ответит ошибкой либо снапом за тысячи км
+    return data.code === 'Ok' && data.waypoints?.[0]?.distance < 1000;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { startOsrmStub, fixedRoute, pointToDeadPort, isOsrmReachable };
