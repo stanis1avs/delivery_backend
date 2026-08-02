@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgis/postgis:15-3.3
-    container_name: postgres
+    container_name: delivery_postgres
     environment:
       POSTGRES_USER: ${DB_USERNAME}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
