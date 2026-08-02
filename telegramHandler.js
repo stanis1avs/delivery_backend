@@ -4,8 +4,6 @@ const OrderModule = require('./modules/orders');
 const CourierModule = require('./modules/couriers');
 const socketBroadcast = require('./websocketServer');
 const { Order } = require('./models');
-// Общий хелпер: PostGIS-геометрия → { lat, lon } для фронтенда (BUG-106)
-const { toLatLon } = require('./modules/geo');
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const redis = new Redis();
@@ -98,14 +96,14 @@ function initializeTelegramHandler() {
         await bot.answerCallbackQuery(callback_id, { text: "Заказ принят!" });
         await bot.sendMessage(courier_telegram_id, `Вы приняли заказ ID: ${order_id}.`);
 
-        // Адресная доставка заказа конкретному курьеру + координаты для маршрута (BUG-106, BUG-107)
-        socketBroadcast.broadcastOrderToCourier(courier.id, {
-          id: order.id,
-          status: 'Progress',
-          details: order.customer_name || 'Заказ принят курьером',
-          pickup_location: toLatLon(order.pickup_location),
-          dropoff_location: toLatLon(order.dropoff_location),
-        });
+        // Адресная доставка заказа конкретному курьеру (BUG-106, BUG-107).
+        // Перечитываем заказ, чтобы отдать актуальный статус, и сериализуем тем же
+        // методом, что и REST — карточки не должны зависеть от канала доставки.
+        const fresh = await OrderModule.findById(order_id);
+        socketBroadcast.broadcastOrderToCourier(
+          courier.id,
+          OrderModule.serializeForClient(fresh, courier)
+        );
       }
 
       if (action === "reject") {

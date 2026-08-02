@@ -1,9 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { Order, CourierStatus, CourierReliability } = require('../models');
+const { Order, Courier, CourierStatus, CourierReliability } = require('../models');
 const RedisModule = require('../modules/redis');
 const { requireCourier } = require('../auth/courierToken');
-const { toLatLon } = require('../modules/geo');
+const OrderModule = require('../modules/orders');
 
 /**
  * GET /api/orders/active
@@ -15,22 +15,15 @@ const { toLatLon } = require('../modules/geo');
  */
 router.get('/active', requireCourier, async (req, res) => {
   try {
-    const orders = await Order.findAll({
-      where: { executor_id: req.courierId, status: 'Progress' },
-      order: [['updated_at', 'DESC']],
-    });
+    const [orders, courier] = await Promise.all([
+      Order.findAll({
+        where: { executor_id: req.courierId, status: 'Progress' },
+        order: [['updated_at', 'DESC']],
+      }),
+      Courier.findByPk(req.courierId),
+    ]);
 
-    return res.json(
-      orders.map((o) => ({
-        id: o.id,
-        status: o.status,
-        details: o.customer_name || 'Заказ',
-        pickup_location: toLatLon(o.pickup_location),
-        dropoff_location: toLatLon(o.dropoff_location),
-        distance_meters: o.distance_meters,
-        estimated_duration_seconds: o.estimated_duration_seconds,
-      }))
-    );
+    return res.json(orders.map((o) => OrderModule.serializeForClient(o, courier)));
   } catch (err) {
     console.error('Ошибка получения активных заказов:', err);
     return res.status(500).json({ error: 'Ошибка сервера' });

@@ -19,6 +19,10 @@ module.exports = (sequelize) => {
                 type: DataTypes.STRING(128),
                 allowNull: false,
             },
+            customer_phone: {
+                type: DataTypes.STRING(32),
+                allowNull: true,
+            },
             status: {
                 type: DataTypes.ENUM('Pending', 'Waiting', 'Progress', 'Completed'),
                 allowNull: false,
@@ -39,6 +43,16 @@ module.exports = (sequelize) => {
             },
             dropoff_location: {
                 type: DataTypes.GEOMETRY('POINT', 4326),
+                allowNull: true,
+            },
+            // Человекочитаемые адреса рядом с координатами: PostGIS хранит геометрию,
+            // но не адрес, а обратное геокодирование — внешняя зависимость
+            pickup_address: {
+                type: DataTypes.STRING(255),
+                allowNull: true,
+            },
+            dropoff_address: {
+                type: DataTypes.STRING(255),
                 allowNull: true,
             },
             distance_meters: {

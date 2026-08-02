@@ -28,6 +28,23 @@ module.exports = (sequelize) => {
             allowNull: false,
             defaultValue: 'Beginner',
         },
+        // Транспорт курьера — раньше блок с машиной был захардкожен во фронтенде
+        vehicle_model: {
+            type: DataTypes.STRING(128),
+            allowNull: true,
+        },
+        license_plate: {
+            type: DataTypes.STRING(16),
+            allowNull: true,
+        },
+        payload_kg: {
+            type: DataTypes.INTEGER,
+            allowNull: true,
+        },
+        volume_m3: {
+            type: DataTypes.FLOAT,
+            allowNull: true,
+        },
     },
     {
         sequelize,
