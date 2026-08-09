@@ -9,6 +9,8 @@
 [Запуск, команды, тесты и эксплуатация](FUNCTIONAL.md)
 
 
+![Главная страница приложения](readme_pictures/homepage.jpg)
+
 ### Основная функциональность:
 - Авторизация через Telegram Login Widget
 - Real-time трекинг геопозиции курьеров (Geolocation API → PostGIS)
